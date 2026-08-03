@@ -3,148 +3,136 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Apple Map Tracker</title>
+  <title>RPG Space Fog Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
-  
-  <!-- Trusted Apple Map Script Framework -->
-  <script src="https://apple-mapkit.com"></script>
-
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0c0f12; font-family: monospace; }
-    
-    /* Apple Map Background Sheet */
-    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-    
-    /* Overlaid RPG Shroud of War Layer */
-    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-    
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #07090e; font-family: monospace; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 3; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
+      z-index: 2; background: rgba(10, 16, 26, 0.95); color: #00ffcc; padding: 15px;
       border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
+      box-shadow: 0 0 15px rgba(0, 255, 204, 0.15);
+    }
+    .game-btn {
+      background: #00ffcc; color: #07090e; border: none; padding: 10px; margin-top: 10px;
+      border-radius: 5px; font-weight: bold; width: 100%; font-family: monospace; font-size: 13px;
     }
   </style>
 </head>
 <body>
 
-  <div id="map"></div>
-  <canvas id="fogCanvas"></canvas>
-  <div id="status"><div id="msg">GPS LINK READY. GENERATING TRUE EARTH LAYER...</div></div>
+  <canvas id="gameCanvas"></canvas>
+  
+  <div id="status">
+    <div id="msg">CONNECTING TO SATELLITES...</div>
+    <!-- This button runs entirely locally, making it immune to Safari security blockages -->
+    <button class="game-btn" id="mapLinkBtn" onclick="openTrueMap()" style="display:none;">VIEW NATIVE APPLE MAP</button>
+  </div>
 
   <script>
-    const canvas = document.getElementById('fogCanvas');
+    const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    let map = null;
-    let history = []; 
+    let history = []; // Logged paths
     let currentPos = null;
-    let mapAnchorPos = null;
-    let playerDot = null;
+    const scaleFactor = 350000; // Visual movement amplification
 
-    // Boundary threshold representing exactly a 1-mile box margin limit
-    const boundaryDelta = 0.0145; 
-
-    function initAppleMap(lat, lng) {
-      // Initialize an anonymous tokenless Apple Map profile
-      mapkit.init({ authorizationCallback: function(done) { done(""); } });
-
-      // Build native map view sheet
-      map = new mapkit.Map("map", {
-        center: new mapkit.Coordinate(lat, lng),
-        zoomRange: new mapkit.ZoomRange(14, 14), // Force fixed 1-mile regional view scale
-        showsMapTypeControl: false,
-        showsZoomControls: false,
-        showsUserLocation: false,
-        isScrollEnabled: false, // Freeze background scrolling
-        isZoomEnabled: false    // Lock zoom scaling
-      });
-
-      // Set map display theme to standard dark street mode vector graphics
-      map.colorScheme = mapkit.ColorScheme.Dark;
-
-      mapAnchorPos = { lat: lat, lng: lng };
-      
-      // Render custom neon green player tracker circle node
-      playerDot = new mapkit.CircleOverlay(new mapkit.Coordinate(lat, lng), 15, {
-        style: new mapkit.Style({ fillColor: "#00ffcc", strokeColor: "#00ffcc", lineWidth: 4 })
-      });
-      map.addOverlay(playerDot);
-
-      // Track re-projection elements cleanly across frame adjustments
-      map.addEventListener("region-change-end", drawFog);
-      resizeCanvas();
-    }
-
-    function resizeCanvas() {
+    function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      drawFog();
+      render();
     }
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', resize);
 
-    function drawFog() {
-      if (!map || !ctx || !currentPos) return;
+    function render() {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#14171d"; // Solid charcoal volumetric fog mask
+      // 1. Draw Cyber Radar Mesh Backdrop
+      ctx.fillStyle = "#07090e";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = "rgba(0, 255, 204, 0.05)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 50) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 50) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
 
+      // 2. Draw Vector Highway Loops locally
+      if (currentPos) {
+        ctx.strokeStyle = "rgba(0, 180, 255, 0.15)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(centerX - ((currentPos.lng * 2000) % 300), centerY + ((currentPos.lat * 2000) % 300), 180, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // 3. Layer and Compute Fog Mask
+      const fogCanvas = document.createElement('canvas');
+      fogCanvas.width = canvas.width;
+      fogCanvas.height = canvas.height;
+      const fCtx = fogCanvas.getContext('2d');
+
+      fCtx.fillStyle = "#12151c"; // Density value coloring
+      fCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+      fCtx.globalCompositeOperation = 'destination-out';
       history.forEach(pt => {
-        // Core Conversion: Translate real geographical GPS paths into current canvas pixels
-        const coord = new mapkit.Coordinate(pt.lat, pt.lng);
-        const point = map.convertCoordinateToPointOnPage(coord);
-        
-        const rad = 90; // Trail clearing radius width
-        const grad = ctx.createRadialGradient(point.x, point.y, rad * 0.1, point.x, point.y, rad);
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(point.x, point.y, rad, 0, Math.PI * 2); ctx.fill();
+        if (currentPos) {
+          const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor;
+          const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
+          
+          const rad = 95; // Unfog path circle width
+          const grad = fCtx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
+          grad.addColorStop(0, 'rgba(0,0,0,1)');
+          grad.addColorStop(1, 'rgba(0,0,0,0)');
+          
+          fCtx.fillStyle = grad;
+          fCtx.beginPath(); fCtx.arc(scrX, scrY, rad, 0, Math.PI * 2); fCtx.fill();
+        }
       });
 
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(fogCanvas, 0, 0);
+
+      // 4. Render Center Neon Node indicator
+      ctx.fillStyle = "#00ffcc";
+      ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; 
     }
 
     function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
+      
       currentPos = { lat: lat, lng: lng };
-
-      // Initialize map sector asset on initial load
-      if (!map) {
-        initAppleMap(lat, lng);
-      }
-
-      // Check distance to active 1-mile margins. Shifts map configuration instantly if breached
-      const latDiff = Math.abs(lat - mapAnchorPos.lat);
-      const lngDiff = Math.abs(lng - mapAnchorPos.lng);
-
-      if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
-        mapAnchorPos = { lat: lat, lng: lng };
-        map.setCenterAnimated(new mapkit.Coordinate(lat, lng));
-      }
-
-      // Smoothly slide the tracker dot on screen to match your footsteps
-      if (playerDot) {
-        playerDot.coordinate = new mapkit.Coordinate(lat, lng);
-      }
-
-      // Permanently write explored coordinate data node to trail history stack
       history.push({ lat: lat, lng: lng });
-      drawFog();
 
-      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>1-MILE CHUNK BOUNDARY STABLE`;
+      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
+      document.getElementById('mapLinkBtn').style.display = 'block'; // Make true map viewer accessible
+      
+      render();
+    }
+
+    // Opens the phone's native Apple Maps application centered perfectly over your dot
+    function openTrueMap() {
+      if (currentPos) {
+        window.location.href = `maps://?ll=${currentPos.lat},${currentPos.lng}&q=Current+Location&z=16`;
+      }
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS SIGNAL FAULT: ${err.message}`;
+        document.getElementById('msg').innerHTML = `GPS PERMISSION DENIED.<br>Check iOS Settings.`;
       }, { enableHighAccuracy: true });
     }
+
+    resize();
   </script>
 </body>
 </html>
