@@ -53,6 +53,9 @@
     let mapAnchorPos = null; 
     let isImageLoading = false;
 
+    // PASTE YOUR STADIA MAPS API KEY HERE
+    const apiKey = '92f56ab6-75b0-459d-9026-f4cb5099f2e2';
+
     // Geographic distance indicating a 1-mile perimeter boundary safety box
     const boundaryDelta = 0.0145; 
     
@@ -67,14 +70,14 @@
     }
     window.addEventListener('resize', resize);
 
-    // Pulls a high-contrast dark street map layout match for gaming aesthetics
+    // Pulls a high-contrast Alidade Smooth Dark street map layout matching video game aesthetics
     function fetchMapChunk(lat, lng) {
       if (isImageLoading) return;
       isImageLoading = true;
       document.getElementById('msg').innerHTML = "SYNCING NEW SECTOR...<br>DOWNLOADING MAP BLUEPRINT";
 
-      // Pre-load the image safely via standard HTML pipeline instead of Canvas parsing
-      realMapImg.src = `https://geoapify.com{lng},${lat}&zoom=14&apiKey=free`;
+      // Pre-load via secure Stadia pipeline mapping your precise latitude/longitude coordinates
+      realMapImg.src = `https://stadiamaps.com{lat},${lng}&zoom=14&width=800&height=800&api_key=${apiKey}`;
       
       realMapImg.onload = () => {
         mapAnchorPos = { lat: lat, lng: lng };
@@ -82,6 +85,11 @@
         playerNode.style.display = "block";
         isImageLoading = false;
         renderFog();
+      };
+      
+      realMapImg.onerror = () => {
+        isImageLoading = false;
+        document.getElementById('msg').innerHTML = "<span style='color:red'>API KEY INVALID</span><br>Check your Stadia dashboard entry.";
       };
     }
 
