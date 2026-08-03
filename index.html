@@ -35,7 +35,8 @@
 </head>
 <body>
 
-  <div id="mapWrapper"><iframe id="realMapFrame" src=""></iframe></div>
+  <!-- FIX: Added referrerpolicy="no-referrer-when-downgrade" to force map tiles through Safari security -->
+  <div id="mapWrapper"><iframe id="realMapFrame" src="" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
   <canvas id="fogCanvas"></canvas>
   <div id="playerNode"></div>
   
