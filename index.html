@@ -3,128 +3,136 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Iframe Map Tracker</title>
+  <title>RPG Infinite Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
-    
-    /* Layer 1: Background Iframe Window holding the live OpenStreetMap view */
-    #mapWrapper {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 900px; height: 900px; z-index: 1; display: none;
-    }
-    /* FIX: Completely removed the image filters that were breaking the map download */
-    #realMapFrame { width: 100%; height: 100%; border: none; pointer-events: none; }
-
-    /* Layer 2: Transparent canvas fog screen sitting on top of the map */
-    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-    
-    /* Layer 3: Neon Green Player Character Indicator Node */
-    #playerNode {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 14px; height: 14px; background: #00ffcc; border-radius: 50%;
-      z-index: 3; box-shadow: 0 0 15px #00ffcc; pointer-events: none; display: none;
-    }
-
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0c0f12; font-family: monospace; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 4; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
+      z-index: 2; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
       border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
     }
   </style>
 </head>
 <body>
 
-  <div id="mapWrapper"><iframe id="realMapFrame" src="" referrerpolicy="no-referrer-when-downgrade"></iframe></div>
-  <canvas id="fogCanvas"></canvas>
-  <div id="playerNode"></div>
-  
-  <div id="status"><div id="msg">GPS ACTIVE. BOOTING MAP CHANNELS...</div></div>
+  <canvas id="gameCanvas"></canvas>
+  <div id="status"><div id="msg">GPS ACTIVE. ACQUIRING REAL MAP LAYERS...</div></div>
 
   <script>
-    const canvas = document.getElementById('fogCanvas');
+    const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const mapWrapper = document.getElementById('mapWrapper');
-    const realMapFrame = document.getElementById('realMapFrame');
-    const playerNode = document.getElementById('playerNode');
     
     let history = []; 
     let currentPos = null; 
     let mapAnchorPos = null; 
-
-    const boundaryDelta = 0.0145; 
-    const metersPerPixel = 1.35;
-    const pixelsPerDegreeLng = 111320 / metersPerPixel;
+    let mapTileImages = {}; // Caches downloaded map square layouts safely
+    
+    const zoom = 14; // Perfectly optimized street map altitude scale
+    const boundaryDelta = 0.0145; // 1-mile boundary limits threshold
 
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      renderFog();
+      render();
     }
     window.addEventListener('resize', resize);
 
-    function fetchMapChunk(lat, lng) {
-      document.getElementById('msg').innerHTML = "SHIFTING SECTOR...<br>RENDERING MAP CHUNK";
-
-      const offset = 0.012;
-      const left = lng - offset;
-      const bottom = lat - offset;
-      const right = lng + offset;
-      const top = lat + offset;
-
-      // FIX: Changed &layer=mapnik to &layer=hot for high-contrast, security-compliant vector trails
-      realMapFrame.src = `https://openstreetmap.org{left}%2C${bottom}%2C${right}%2C${top}&layer=hot`;
-      
-      setTimeout(() => {
-        mapAnchorPos = { lat: lat, lng: lng };
-        mapWrapper.style.display = "block";
-        playerNode.style.display = "block";
-        renderFog();
-      }, 600);
+    // Standard cryptographic algorithms to convert real latitude/longitude into open grid indexing numbers
+    function lon2tile(lon, z) { return Math.floor((lon + 180) / 360 * Math.pow(2, z)); }
+    function lat2tile(lat, z) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z)); }
+    function lon2pixel(lon, z, tileX) { return ((lon + 180) / 360 * Math.pow(2, z) - tileX) * 256; }
+    function lat2pixel(lat, z, tileY) {
+      const latRad = lat * Math.PI / 180;
+      return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, z) - tileY) * 256;
     }
 
-    function renderFog() {
+    function render() {
       if (!currentPos || !mapAnchorPos) return;
 
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
-      const pixelsPerDegreeLat = 111000 / metersPerPixel;
+      // 1. Calculate active grid tiles for the current anchor location
+      const centerTileX = lon2tile(mapAnchorPos.lng, zoom);
+      const centerTileY = lat2tile(mapAnchorPos.lat, zoom);
+      
+      const pX = lon2pixel(currentPos.lng, zoom, centerTileX);
+      const pY = lat2pixel(currentPos.lat, zoom, centerTileY);
 
-      const deltaLng = currentPos.lng - mapAnchorPos.lng;
-      const deltaLat = currentPos.lat - mapAnchorPos.lat;
+      // Create a background layer grid block inside the canvas cache pipeline
+      const terrainCanvas = document.createElement('canvas');
+      terrainCanvas.width = canvas.width;
+      terrainCanvas.height = canvas.height;
+      const tCtx = terrainCanvas.getContext('2d');
 
-      const shiftX = -(deltaLng * pixelsPerDegreeLng * cosLat);
-      const shiftY = (deltaLat * pixelsPerDegreeLat);
-      mapWrapper.style.transform = `translate(calc(-50% + ${shiftX}px), calc(-50% + ${shiftY}px))`;
+      // Pre-paint a midnight layout void background
+      tCtx.fillStyle = "#0c0f12";
+      tCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 2. Draw Solid Shroud
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#11141b"; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Download and stitch adjacent 3x3 layout tile segments natively
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const tX = centerTileX + dx;
+          const tY = centerTileY + dy;
+          const tileKey = `${zoom}_${tX}_${tY}`;
 
-      // 3. Cut trail circle paths out of the canvas fog
-      ctx.globalCompositeOperation = 'destination-out';
+          const startX = centerX - pX + (dx * 256);
+          const startY = centerY - pY + (dy * 256);
+
+          if (mapTileImages[tileKey] && mapTileImages[tileKey].complete) {
+            tCtx.drawImage(mapTileImages[tileKey], startX, startY);
+          } else if (!mapTileImages[tileKey]) {
+            // Fetch unblockable, keyless high-contrast cartography tile images
+            const img = new Image();
+            img.src = `https://openstreetmap.fr{zoom}/${tX}/${tY}.png`;
+            img.onload = () => { render(); }; // Refresh frame when the layer downloads
+            mapTileImages[tileKey] = img;
+          }
+        }
+      }
+
+      // 2. Generate and Compute the Volumetric Shroud Mask
+      const fogCanvas = document.createElement('canvas');
+      fogCanvas.width = canvas.width;
+      fogCanvas.height = canvas.height;
+      const fCtx = fogCanvas.getContext('2d');
+
+      fCtx.fillStyle = "#12141a"; // Shroud thickness fill tint
+      fCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Cut path openings out of the fog screen using displacement tracking coordinates
+      fCtx.globalCompositeOperation = 'destination-out';
+      
+      const scaleLngFactor = 111320 / 1.35; // Map resolution modifiers
+      const scaleLatFactor = 111000 / 1.35;
 
       history.forEach(pt => {
-        const dLng = pt.lng - currentPos.lng;
-        const dLat = pt.lat - currentPos.lat;
-
-        const scrX = centerX + (dLng * pixelsPerDegreeLng * cosLat);
-        const scrY = centerY - (dLat * pixelsPerDegreeLat);
+        const cosLat = Math.cos(currentPos.lat * Math.PI / 180);
+        const scrX = centerX + (pt.lng - currentPos.lng) * scaleLngFactor * cosLat;
+        const scrY = centerY - (pt.lat - currentPos.lat) * scaleLatFactor;
         
-        const rad = 95; 
-        const grad = ctx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
+        const rad = 95; // Exploration brush aperture size width
+        const grad = fCtx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(scrX, scrY, rad, 0, Math.PI * 2); ctx.fill();
+        fCtx.fillStyle = grad;
+        fCtx.beginPath(); fCtx.arc(scrX, scrY, rad, 0, Math.PI * 2); fCtx.fill();
       });
 
-      ctx.globalCompositeOperation = 'source-over';
+      // 3. Flatten and Compositing layers smoothly down to main view canvas screen
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(terrainCanvas, 0, 0); // Ground layer
+      ctx.drawImage(fogCanvas, 0, 0);    // Fog layer overlays ground smoothly
+
+      // 4. Render Center Neon Node indicator (Locked to viewport coordinates center point view)
+      ctx.fillStyle = "#00ffcc";
+      ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; 
     }
 
     function updateGPS(position) {
@@ -133,26 +141,29 @@
       
       currentPos = { lat: lat, lng: lng };
 
+      // Initialize anchor map coordinate reference framework on startup
       if (!mapAnchorPos) {
-        fetchMapChunk(lat, lng);
+        mapAnchorPos = { lat: lat, lng: lng };
       } else {
+        // Shift regional tile matrix array if stepping outside 1-mile margins
         const latDiff = Math.abs(lat - mapAnchorPos.lat);
         const lngDiff = Math.abs(lng - mapAnchorPos.lng);
 
         if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
-          fetchMapChunk(lat, lng);
+          mapAnchorPos = { lat: lat, lng: lng };
         }
       }
 
+      // Log movement parameters cleanly to memory arrays
       history.push({ lat: lat, lng: lng });
-      renderFog();
+      render();
 
-      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>GRID MATRIX TRACKING...`;
+      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>UNFOGGING ENVIRONMENT...`;
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS HARDWARE FAIL: ${err.message}`;
+        document.getElementById('msg').innerHTML = `GPS DATA FAULT: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
 
