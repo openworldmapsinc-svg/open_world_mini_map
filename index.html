@@ -3,161 +3,167 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Fog Map</title>
+  <title>RPG Radar Fog Map</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
-  
-  <!-- Primary CDN Links -->
-  <link id="css-cdn" rel="stylesheet" href="https://unpkg.com" />
-  <script id="js-cdn" src="https://unpkg.com"></script>
-
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
-    #map { width: 100%; height: 100%; position: absolute; z-index: 1; background: #111; }
-    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; opacity: 0.9; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d10; font-family: monospace; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 3; background: rgba(0,0,0,0.9); color: #fff; padding: 12px 20px;
-      border-radius: 10px; font-family: sans-serif; font-size: 14px; text-align: center; width: 80%; max-width: 300px;
+      z-index: 2; background: rgba(15, 23, 42, 0.95); color: #00ffcc; padding: 15px;
+      border-radius: 10px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
+      box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
     }
-    #startBtn {
-      background: #ff4757; color: white; border: none; padding: 8px 15px; 
-      margin-top: 8px; border-radius: 5px; font-weight: bold; width: 100%; display: block;
+    button {
+      background: #00ffcc; color: #0b0d10; border: none; padding: 10px; margin-top: 10px;
+      border-radius: 5px; font-weight: bold; width: 100%; font-family: monospace; font-size: 14px;
     }
   </style>
 </head>
 <body>
 
-  <div id="map"></div>
-  <canvas id="fogCanvas"></canvas>
+  <canvas id="gameCanvas"></canvas>
   
   <div id="status">
-    <div>Connecting to Map Nodes...</div>
+    <div id="msg">SYSTEMS OFFLINE</div>
+    <button id="startBtn" onclick="initGPS()">INITIALIZE SENSORS</button>
   </div>
 
   <script>
-    // Global error logger
-    window.onerror = function(msg, url, line) {
-      document.getElementById('status').innerHTML = `<span style="color:red">Error: ${msg} on line ${line}</span>`;
-      return false;
-    };
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let history = []; // Tracked points {x, y}
+    let playerPos = { x: 0, y: 0 };
+    let startPos = null;
+    let scale = 200000; // Map zoom scale
 
-    let map, playerMarker, canvas, ctx;
-    let history = [];
+    // Custom POI: Adjust these coordinates to your city center!
+    const poi = { name: "ALPHA BASE", lat: 34.8526, lng: -82.3940, radius: 120, visited: false };
 
-    // AUTOMATIC NETWORK FALLBACK SYSTEM
-    window.addEventListener('load', () => {
-      if (typeof L === 'undefined') {
-        document.getElementById('status').innerHTML = "<div>Primary map blocked. Trying Backup Node...</div>";
-        
-        // Backup Attempt: Force fallback URLs into the layout
-        const altCSS = document.createElement('link');
-        altCSS.rel = 'stylesheet';
-        altCSS.href = 'https://jsdelivr.net';
-        document.head.appendChild(altCSS);
-
-        const altJS = document.createElement('script');
-        altJS.src = 'https://jsdelivr.net';
-        altJS.onload = () => { initApp(); };
-        altJS.onerror = () => {
-          document.getElementById('status').innerHTML = '<span style="color:red">All web map nodes blocked. Please turn off your phone VPN / content blocker settings.</span>';
-        };
-        document.head.appendChild(altJS);
-      } else {
-        initApp();
-      }
-    });
-
-    function initApp() {
-      document.getElementById('status').innerHTML = "<div>Rendering Fog Canvas...</div>";
-      
-      // 1. Setup Leaflet
-      map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 14); 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-      playerMarker = L.circleMarker([34.8526, -82.3940], { radius: 9, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
-
-      // 2. Setup Canvas
-      canvas = document.getElementById('fogCanvas');
-      ctx = canvas.getContext('2d');
-
-      window.addEventListener('resize', resizeCanvas);
-      map.on('move', drawFog);
-      map.on('zoomend', drawFog);
-
-      resizeCanvas();
-      
-      document.getElementById('status').innerHTML = `
-        <div>Systems Clear!</div>
-        <button id="startBtn" onclick="requestGPS()">INITIALISE GPS</button>
-      `;
-      
-      requestGPS();
-    }
-
-    function resizeCanvas() {
-      if (!canvas) return;
+    function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      drawFog();
+      render();
     }
+    window.addEventListener('resize', resize);
 
-    function drawFog() {
-      if (!ctx || !map) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#1d2024"; 
+    function render() {
+      // 1. Clear Screen with dark grid background
+      ctx.fillStyle = "#0b0d10";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalCompositeOperation = 'destination-out';
 
-      history.forEach(point => {
-        try {
-          const screenPos = map.latLngToContainerPoint([point.lat, point.lng]);
-          const gradient = ctx.createRadialGradient(screenPos.x, screenPos.y, point.radius * 0.1, screenPos.x, screenPos.y, point.radius);
-          gradient.addColorStop(0, 'rgba(0,0,0,1)');
-          gradient.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = gradient;
-          ctx.beginPath();
-          ctx.arc(screenPos.x, screenPos.y, point.radius, 0, Math.PI * 2);
-          ctx.fill();
-        } catch(e) {}
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+
+      // Draw RPG Tech Radar Grid under the fog
+      ctx.strokeStyle = "rgba(0, 255, 204, 0.05)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < canvas.width; i += 40) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+      }
+      for (let j = 0; j < canvas.height; j += 40) {
+        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
+      }
+
+      // Draw POI if initialized
+      if (startPos) {
+        const poiX = centerX + (poi.lng - startPos.lng) * scale;
+        const poiY = centerY - (poi.lat - startPos.lat) * scale;
+        
+        ctx.fillStyle = poi.visited ? "rgba(0, 255, 100, 0.15)" : "rgba(255, 50, 50, 0.1)";
+        ctx.beginPath(); ctx.arc(poiX, poiY, poi.radius, 0, Math.PI*2); ctx.fill();
+        
+        ctx.strokeStyle = poi.visited ? "#00ff64" : "#ff3232";
+        ctx.setLineDash([4, 4]);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      // 2. Render Fog Layer (Create an offscreen mask style blend)
+      const fogCanvas = document.createElement('canvas');
+      fogCanvas.width = canvas.width;
+      fogCanvas.height = canvas.height;
+      const fCtx = fogCanvas.getContext('2d');
+
+      // Fill offscreen canvas with thick volumetric fog color
+      fCtx.fillStyle = "#1e222b";
+      fCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Cut path trails out of the fog canvas
+      fCtx.globalCompositeOperation = 'destination-out';
+      history.forEach(pt => {
+        const scrX = centerX + (pt.lng - startPos.lng) * scale;
+        const scrY = centerY - (pt.lat - startPos.lat) * scale;
+        
+        const grad = fCtx.createRadialGradient(scrX, scrY, pt.rad * 0.1, scrX, scrY, pt.rad);
+        grad.addColorStop(0, 'rgba(0,0,0,1)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        
+        fCtx.fillStyle = grad;
+        fCtx.beginPath(); fCtx.arc(scrX, scrY, pt.rad, 0, Math.PI*2); fCtx.fill();
       });
-      ctx.globalCompositeOperation = 'source-over';
+
+      // Draw the computed fog over our active tech grid
+      ctx.drawImage(fogCanvas, 0, 0);
+
+      // 3. Draw Player Position Marker
+      ctx.fillStyle = "#00ffcc";
+      ctx.shadowBlur = 10; ctx.shadowColor = "#00ffcc";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0; // reset
     }
 
-    function updateLocation(position) {
+    function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
+
+      if (!startPos) {
+        startPos = { lat: lat, lng: lng };
+      }
+
+      playerPos = { lat: lat, lng: lng };
       
-      if (playerMarker && map) {
-        playerMarker.setLatLng([lat, lng]);
-        map.setView([lat, lng], map.getZoom());
+      // Push movement step trail to history
+      history.push({ lat: lat, lng: lng, rad: 60 });
+
+      // Check distance to configured custom POI destination
+      if (startPos) {
+        const dLat = lat - poi.lat;
+        const dLng = lng - poi.lng;
+        const dist = Math.sqrt(dLat*dLat + dLng*dLng) * scale; 
+        if (dist < poi.radius && !poi.visited) {
+          poi.visited = true;
+          history.push({ lat: poi.lat, lng: poi.lng, rad: poi.radius * 2 });
+          document.getElementById('msg').innerHTML = `DISCOVERED: ${poi.name}`;
+        }
+      }
+
+      if(!poi.visited) {
+        document.getElementById('msg').innerHTML = `GPS ONLINE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
       }
       
-      history.push({ lat: lat, lng: lng, radius: 85 });
-      drawFog();
-
-      document.getElementById('status').innerHTML = `<div>Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}</div>`;
+      render();
     }
 
-    function handleGPSError(err) {
-      document.getElementById('status').innerHTML = `<div>GPS Offline: ${err.message}</div><button id="startBtn" onclick="requestGPS()">Retry Satellite Sync</button>`;
-    }
+    function initGPS() {
+      document.getElementById('msg').innerText = "CONNECTING TO SATELLITES...";
+      document.getElementById('startBtn').style.display = 'none';
 
-    function requestGPS() {
-      document.getElementById('status').innerHTML = "Pinging Satellites...";
       if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(updateLocation, handleGPSError, {
-          enableHighAccuracy: false,
-          timeout: 10000
-        });
-        navigator.geolocation.watchPosition(updateLocation, handleGPSError, {
-          enableHighAccuracy: false,
-          maximumAge: 4000
-        });
+        navigator.geolocation.getCurrentPosition(updateGPS, (err) => {
+          document.getElementById('msg').innerHTML = `GPS ERROR: ${err.message}<br>(Code ${err.code})`;
+          document.getElementById('startBtn').style.display = 'block';
+          document.getElementById('startBtn').innerText = 'RETRY SENSOR SYNC';
+        }, { enableHighAccuracy: true });
+
+        navigator.geolocation.watchPosition(updateGPS, null, { enableHighAccuracy: true });
       } else {
-        document.getElementById('status').innerText = "Device lacks GPS.";
+        document.getElementById('msg').innerText = "HARDWARE NOT SUPPORTED";
       }
     }
+
+    resize();
   </script>
 </body>
 </html>
