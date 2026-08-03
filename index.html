@@ -7,21 +7,21 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   
-  <!-- Leaflet Map CSS and JS -->
   <link rel="stylesheet" href="https://unpkg.com" />
   <script src="https://unpkg.com"></script>
 
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    #map { width: 100%; height: 100%; position: absolute; z-index: 1; }
-    #fogCanvas {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 2; pointer-events: none; mix-blend-mode: multiply; opacity: 0.92;
-    }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
+    #map { width: 100%; height: 100%; position: absolute; z-index: 1; background: #111; }
+    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; opacity: 0.9; }
     #status {
-      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-      z-index: 3; background: rgba(0,0,0,0.8); color: #fff; padding: 10px 20px;
-      border-radius: 20px; font-family: monospace; font-size: 12px; pointer-events: none;
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      z-index: 3; background: rgba(0,0,0,0.9); color: #fff; padding: 12px 20px;
+      border-radius: 10px; font-family: sans-serif; font-size: 14px; text-align: center; width: 80%; max-width: 300px;
+    }
+    #startBtn {
+      background: #ff4757; color: white; border: none; padding: 8px 15px; 
+      margin-top: 8px; border-radius: 5px; font-weight: bold; width: 100%; display: block;
     }
   </style>
 </head>
@@ -29,30 +29,29 @@
 
   <div id="map"></div>
   <canvas id="fogCanvas"></canvas>
-  <div id="status">Waiting for GPS...</div>
+  
+  <div id="status">
+    <div>Initialising App Systems...</div>
+    <button id="startBtn" onclick="requestGPS()">FORCE START GPS</button>
+  </div>
 
   <script>
-    // 1. Initialize Map with valid starting coordinates (Greenville, SC placeholder)
-    const map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 16); 
+    // System Logger to catch silent failures
+    window.onerror = function(msg, url, line) {
+      document.getElementById('status').innerHTML = `<span style="color:red">Error: ${msg} on line ${line}</span>`;
+      return false;
+    };
+
+    // 1. Initialize Map Base
+    const map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 14); 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    // FIX: Corrected syntax with valid starting coordinates
-    const playerMarker = L.circleMarker([34.8526, -82.3940], { 
-      radius: 8, 
-      color: '#00ffcc', 
-      fillColor: '#00ffcc', 
-      fillOpacity: 1 
-    }).addTo(map);
+    const playerMarker = L.circleMarker([34.8526, -82.3940], { radius: 9, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
 
     // 2. Setup Fog Canvas
     const canvas = document.getElementById('fogCanvas');
     const ctx = canvas.getContext('2d');
     let history = []; 
-
-    // Configured Points of Interest (POIs)
-    const poiList = [
-      { name: "Big City Center", lat: 34.8526, lng: -82.3940, radius: 300, visited: false }
-    ];
 
     function resizeCanvas() {
       canvas.width = window.innerWidth;
@@ -63,129 +62,68 @@
 
     function drawFog() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Base fog texture
       ctx.fillStyle = "#22252a"; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Blending mode to clear fog holes
       ctx.globalCompositeOperation = 'destination-out';
 
       history.forEach(point => {
         try {
           const screenPos = map.latLngToContainerPoint([point.lat, point.lng]);
-          
-          const gradient = ctx.createRadialGradient(
-            screenPos.x, screenPos.y, point.radius * 0.1, 
-            screenPos.x, screenPos.y, point.radius
-          );
+          const gradient = ctx.createRadialGradient(screenPos.x, screenPos.y, point.radius * 0.1, screenPos.x, screenPos.y, point.radius);
           gradient.addColorStop(0, 'rgba(0,0,0,1)');
-          gradient.addColorStop(0.6, 'rgba(0,0,0,0.8)');
           gradient.addColorStop(1, 'rgba(0,0,0,0)');
-
           ctx.fillStyle = gradient;
           ctx.beginPath();
           ctx.arc(screenPos.x, screenPos.y, point.radius, 0, Math.PI * 2);
           ctx.fill();
-        } catch(e) { /* Map projection not ready yet */ }
+        } catch(e) {}
       });
-
       ctx.globalCompositeOperation = 'source-over';
     }
 
     map.on('move', drawFog);
     map.on('zoomend', drawFog);
 
-    // 3. GPS Tracking Logic
+    // 3. Location Capture Core
     function updateLocation(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      const playerLatLng = new L.LatLng(lat, lng);
-
-      playerMarker.setLatLng(playerLatLng);
-      map.setView(playerLatLng, map.getZoom()); // Smoothly center map
-
-      // Add regular path reveal radius
+      
+      playerMarker.setLatLng([lat, lng]);
+      map.setView([lat, lng], map.getZoom());
+      
       history.push({ lat: lat, lng: lng, radius: 80 });
-
-      // Check POIs
-      poiList.forEach(poi => {
-        if (!poi.visited) {
-          const distance = map.distance(playerLatLng, [poi.lat, poi.lng]);
-          if (distance < 150) { 
-            poi.visited = true;
-            history.push({ lat: poi.lat, lng: poi.lng, radius: 400 });
-            document.getElementById('status').innerText = `Discovered: ${poi.name}!`;
-            setTimeout(() => { document.getElementById('status').innerText = "Exploring..."; }, 4000);
-          }
-        }
-      });
-
       drawFog();
-      if(!document.getElementById('status').innerText.includes("Discovered")) {
-        document.getElementById('status').innerText = `Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-      }
-    }
 
-    // 3. Resilient GPS Tracking Logic
-    function updateLocation(position) {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      const playerLatLng = new L.LatLng(lat, lng);
-
-      playerMarker.setLatLng(playerLatLng);
-      map.setView(playerLatLng, map.getZoom()); 
-
-      // Unfog trail path
-      history.push({ lat: lat, lng: lng, radius: 80 });
-
-      // Check POIs
-      poiList.forEach(poi => {
-        if (!poi.visited) {
-          const distance = map.distance(playerLatLng, [poi.lat, poi.lng]);
-          if (distance < 150) { 
-            poi.visited = true;
-            history.push({ lat: poi.lat, lng: poi.lng, radius: 400 });
-            document.getElementById('status').innerText = `Discovered: ${poi.name}!`;
-            setTimeout(() => { document.getElementById('status').innerText = "Exploring..."; }, 4000);
-          }
-        }
-      });
-
-      drawFog();
-      if(!document.getElementById('status').innerText.includes("Discovered")) {
-        document.getElementById('status').innerText = `Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-      }
+      document.getElementById('status').innerHTML = `<div>Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}</div>`;
     }
 
     function handleGPSError(err) {
-      document.getElementById('status').innerText = `GPS Code ${err.code}: ${err.message}`;
+      document.getElementById('status').innerHTML = `<div>GPS Fail: ${err.message} (Code ${err.code})</div><button id="startBtn" onclick="requestGPS()">Retry Connection</button>`;
     }
 
-    // iOS Safari Fix: Warm up with a simple request, then initiate tracking loop
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          updateLocation(pos); // Handle first point immediately
-          
-          // Start watching location continuously
-          navigator.geolocation.watchPosition(updateLocation, handleGPSError, {
-            enableHighAccuracy: false, // Prevents iOS from freezing if satellite signal is weak indoors
-            maximumAge: 3000
-          });
-        },
-        handleGPSError
-      );
-    } else {
-      document.getElementById('status').innerText = "GPS not supported.";
+    function requestGPS() {
+      document.getElementById('status').innerHTML = "Connecting to Satellites...";
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(updateLocation, handleGPSError, {
+          enableHighAccuracy: false,
+          timeout: 15000
+        });
+        
+        navigator.geolocation.watchPosition(updateLocation, handleGPSError, {
+          enableHighAccuracy: false,
+          maximumAge: 5000
+        });
+      } else {
+        document.getElementById('status').innerText = "Device lacks GPS hardware.";
+      }
     }
 
-    setTimeout(resizeCanvas, 500);
-
-
-    // Initialize layout sizing
-    setTimeout(resizeCanvas, 500);
+    // Auto-run trigger
+    setTimeout(() => {
+      resizeCanvas();
+      requestGPS();
+    }, 800);
   </script>
-  <script>
-    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
-  </script>
+</body>
+</html>
