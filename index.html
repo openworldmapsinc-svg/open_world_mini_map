@@ -36,7 +36,7 @@
     const map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 16); 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    const playerMarker = L.circleMarker([0,0], { radius: 8, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
+    const playerMarker = L.circleMarker([0, 0], { radius: 8, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
 
     // 2. Setup Fog Canvas
     const canvas = document.getElementById('fogCanvas');
