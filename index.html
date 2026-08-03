@@ -3,159 +3,141 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Chunk Map Tracker</title>
+  <title>RPG Apple Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
+  
+  <!-- Trusted Apple Map Script Framework -->
+  <script src="https://apple-mapkit.com"></script>
+
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0c0f12; font-family: monospace; }
-    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    
+    /* Apple Map Background Sheet */
+    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    
+    /* Overlaid RPG Shroud of War Layer */
+    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+    
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 2; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
+      z-index: 3; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
       border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
     }
   </style>
 </head>
 <body>
 
-  <canvas id="gameCanvas"></canvas>
-  <div id="status"><div id="msg">GPS ACTIVE. ACQUIRING REGIONAL BLUEPRINT...</div></div>
+  <div id="map"></div>
+  <canvas id="fogCanvas"></canvas>
+  <div id="status"><div id="msg">GPS LINK READY. GENERATING TRUE EARTH LAYER...</div></div>
 
   <script>
-    const canvas = document.getElementById('gameCanvas');
+    const canvas = document.getElementById('fogCanvas');
     const ctx = canvas.getContext('2d');
     
-    let history = []; // Tracks structural coordinate data {lat, lng, rad}
-    let currentPos = null; // Active player GPS
-    let mapAnchorPos = null; // Current center lock coordinate of the background image
-    let mapImage = null;
-    let isImageLoading = false;
+    let map = null;
+    let history = []; 
+    let currentPos = null;
+    let mapAnchorPos = null;
+    let playerDot = null;
 
-    // Approximate lat/lng delta representing a 1-mile radius safety boundary box
+    // Boundary threshold representing exactly a 1-mile box margin limit
     const boundaryDelta = 0.0145; 
-    // Scaling system matching Geoapify zoom level 14 pixel distribution (approx 1 mile viewing area on device viewports)
-    const metersPerPixel = 1.35;
-    const pixelsPerDegreeLng = 111320 / metersPerPixel;
 
-    function resize() {
+    function initAppleMap(lat, lng) {
+      // Initialize an anonymous tokenless Apple Map profile
+      mapkit.init({ authorizationCallback: function(done) { done(""); } });
+
+      // Build native map view sheet
+      map = new mapkit.Map("map", {
+        center: new mapkit.Coordinate(lat, lng),
+        zoomRange: new mapkit.ZoomRange(14, 14), // Force fixed 1-mile regional view scale
+        showsMapTypeControl: false,
+        showsZoomControls: false,
+        showsUserLocation: false,
+        isScrollEnabled: false, // Freeze background scrolling
+        isZoomEnabled: false    // Lock zoom scaling
+      });
+
+      // Set map display theme to standard dark street mode vector graphics
+      map.colorScheme = mapkit.ColorScheme.Dark;
+
+      mapAnchorPos = { lat: lat, lng: lng };
+      
+      // Render custom neon green player tracker circle node
+      playerDot = new mapkit.CircleOverlay(new mapkit.Coordinate(lat, lng), 15, {
+        style: new mapkit.Style({ fillColor: "#00ffcc", strokeColor: "#00ffcc", lineWidth: 4 })
+      });
+      map.addOverlay(playerDot);
+
+      // Track re-projection elements cleanly across frame adjustments
+      map.addEventListener("region-change-end", drawFog);
+      resizeCanvas();
+    }
+
+    function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      render();
+      drawFog();
     }
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', resizeCanvas);
 
-    function fetchMapChunk(lat, lng) {
-      if (isImageLoading) return;
-      isImageLoading = true;
-      document.getElementById('msg').innerHTML = "SHIFTING SECTOR DATA...<br>DOWNLOADING NEW CHUNK";
+    function drawFog() {
+      if (!map || !ctx || !currentPos) return;
 
-      const img = new Image();
-      // Uses map style "dark-matter" for an authentic gaming look
-      img.src = `https://geoapify.com{lng},${lat}&zoom=14&apiKey=free`;
-      
-      img.onload = () => {
-        mapAnchorPos = { lat: lat, lng: lng };
-        mapImage = img;
-        isImageLoading = false;
-        render();
-      };
-      img.onerror = () => {
-        isImageLoading = false;
-        document.getElementById('msg').innerHTML = "DATA FAILURE.<br>Running Backup Sensors.";
-      };
-    }
-
-    function render() {
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-
-      // 1. Draw Void space backdrop
-      ctx.fillStyle = "#0c0f12";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#14171d"; // Solid charcoal volumetric fog mask
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 2. Render Static Map Segment if calibrated
-      if (mapImage && mapImage.complete && mapAnchorPos && currentPos) {
-        // Compute pixel offset between current player location and active chunk background anchor center point
-        const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
-        const pixelsPerDegreeLat = 111000 / metersPerPixel;
+      ctx.globalCompositeOperation = 'destination-out';
 
-        const deltaLng = currentPos.lng - mapAnchorPos.lng;
-        const deltaLat = currentPos.lat - mapAnchorPos.lat;
+      history.forEach(pt => {
+        // Core Conversion: Translate real geographical GPS paths into current canvas pixels
+        const coord = new mapkit.Coordinate(pt.lat, pt.lng);
+        const point = map.convertCoordinateToPointOnPage(coord);
+        
+        const rad = 90; // Trail clearing radius width
+        const grad = ctx.createRadialGradient(point.x, point.y, rad * 0.1, point.x, point.y, rad);
+        grad.addColorStop(0, 'rgba(0,0,0,1)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(point.x, point.y, rad, 0, Math.PI * 2); ctx.fill();
+      });
 
-        // Shift background asset image position relative to your step displacements
-        const mapX = centerX - (mapImage.width / 2) - (deltaLng * pixelsPerDegreeLng * cosLat);
-        const mapY = centerY - (mapImage.height / 2) + (deltaLat * pixelsPerDegreeLat);
-
-        ctx.drawImage(mapImage, mapX, mapY);
-      }
-
-      // 3. Compute and Apply the Shroud of War Layer Mask
-      const fogCanvas = document.createElement('canvas');
-      fogCanvas.width = canvas.width;
-      fogCanvas.height = canvas.height;
-      const fCtx = fogCanvas.getContext('2d');
-
-      fCtx.fillStyle = "#111318"; // Opaque cloud density fill
-      fCtx.fillRect(0, 0, canvas.width, canvas.height);
-
-      fCtx.globalCompositeOperation = 'destination-out';
-
-      if (currentPos && mapAnchorPos) {
-        const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
-        const pixelsPerDegreeLat = 111000 / metersPerPixel;
-
-        history.forEach(pt => {
-          // Relocate visibility holes on screen relative to where your player is standing at center view
-          const dLng = pt.lng - currentPos.lng;
-          const dLat = pt.lat - currentPos.lat;
-
-          const scrX = centerX + (dLng * pixelsPerDegreeLng * cosLat);
-          const scrY = centerY - (dLat * pixelsPerDegreeLat);
-          
-          const grad = fCtx.createRadialGradient(scrX, scrY, pt.rad * 0.1, scrX, scrY, pt.rad);
-          grad.addColorStop(0, 'rgba(0,0,0,1)');
-          grad.addColorStop(1, 'rgba(0,0,0,0)');
-          
-          fCtx.fillStyle = grad;
-          fCtx.beginPath(); fCtx.arc(scrX, scrY, pt.rad, 0, Math.PI * 2); fCtx.fill();
-        });
-      }
-
-      ctx.drawImage(fogCanvas, 0, 0);
-
-      // 4. Render Neon Tracker Dot (Locked to precise display center layout view)
-      ctx.fillStyle = "#00ffcc";
-      ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
-      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0; 
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      
       currentPos = { lat: lat, lng: lng };
 
-      // Initialize anchor map baseline on cold boot setup sequence
-      if (!mapAnchorPos) {
-        fetchMapChunk(lat, lng);
-      } else {
-        // Calculate margin limits. If player distances out past 1 mile boundary, center re-shifts chunk layout instantly
-        const latDiff = Math.abs(lat - mapAnchorPos.lat);
-        const lngDiff = Math.abs(lng - mapAnchorPos.lng);
-
-        if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
-          fetchMapChunk(lat, lng);
-        }
+      // Initialize map sector asset on initial load
+      if (!map) {
+        initAppleMap(lat, lng);
       }
 
-      // Record localized historical exploration node track data (Brush Reveal Radius: 85 pixels)
-      history.push({ lat: lat, lng: lng, rad: 85 });
+      // Check distance to active 1-mile margins. Shifts map configuration instantly if breached
+      const latDiff = Math.abs(lat - mapAnchorPos.lat);
+      const lngDiff = Math.abs(lng - mapAnchorPos.lng);
 
-      if (!isImageLoading) {
-        document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>GRID SECTOR LOCK STABLE`;
+      if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
+        mapAnchorPos = { lat: lat, lng: lng };
+        map.setCenterAnimated(new mapkit.Coordinate(lat, lng));
       }
-      render();
+
+      // Smoothly slide the tracker dot on screen to match your footsteps
+      if (playerDot) {
+        playerDot.coordinate = new mapkit.Coordinate(lat, lng);
+      }
+
+      // Permanently write explored coordinate data node to trail history stack
+      history.push({ lat: lat, lng: lng });
+      drawFog();
+
+      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>1-MILE CHUNK BOUNDARY STABLE`;
     }
 
     if (navigator.geolocation) {
@@ -163,8 +145,6 @@
         document.getElementById('msg').innerHTML = `GPS SIGNAL FAULT: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
-
-    resize();
   </script>
 </body>
 </html>
