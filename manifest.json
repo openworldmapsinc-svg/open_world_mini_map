@@ -1,8 +1,8 @@
 {
-  "name": "My iPhone App",
-  "short_name": "MyApp",
+  "name": "RPG Fog Mapper",
+  "short_name": "FogMap",
   "start_url": "index.html",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000"
+  "background_color": "#22252a",
+  "theme_color": "#22252a"
 }
