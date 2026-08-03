@@ -3,126 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Fog Map Tracker</title>
+  <title>RPG Cyber Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
-  
-  <!-- Using Mapbox GL JS for beautiful, unblockable RPG style vectors -->
-  <link href="https://mapbox.com" rel="stylesheet">
-  <script src="https://mapbox.com"></script>
-
   <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d10; font-family: monospace; }
-    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-    #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #080a0f; font-family: monospace; }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 3; background: rgba(15, 23, 42, 0.95); color: #00ffcc; padding: 15px;
-      border-radius: 10px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
+      z-index: 2; background: rgba(10, 15, 26, 0.95); color: #00ffcc; padding: 15px;
+      border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
+      box-shadow: 0 0 15px rgba(0, 255, 204, 0.15); pointer-events: none;
     }
   </style>
 </head>
 <body>
 
-  <div id="map"></div>
-  <canvas id="fogCanvas"></canvas>
+  <canvas id="gameCanvas"></canvas>
   <div id="status"><div id="msg">GPS ACTIVE. LOCATING...</div></div>
 
   <script>
-    // Global Error Logger
-    window.onerror = function(msg, url, line) {
-      document.getElementById('msg').innerHTML = `<span style="color:red">Error: ${msg}</span>`;
-      return false;
-    };
-
-    // PASTE YOUR FREE MAPBOX ACCESS TOKEN HERE
-    mapboxgl.accessToken = 'pk.eyJ1IjoiZGVib2prbyIsImEiOiJjbXNkano5Z2kwN2Y5MnpvbzRkd2xoaHV1In0.KJnaVuZOu2uJHhqypfyPAA';
-
-    const canvas = document.getElementById('fogCanvas');
+    const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    let map;
     let history = []; 
     let currentPos = null;
-    let playerMarkerElement;
-    let playerMarker;
+    let startPos = null;
+    
+    // Scale modifier to turn small coordinate fractions into screen layouts
+    const scaleFactor = 150000; 
 
-    function resizeCanvas() {
+    // Seeded Road Generator to simulate local streets dynamically based on your coordinates
+    function drawProceduralStreets(cX, cY, lat, lng) {
+      ctx.strokeStyle = "rgba(0, 255, 204, 0.18)";
+      ctx.lineWidth = 3;
+      
+      // Generate unique grid offsets based on your city location numbers
+      let seedX = Math.floor(lng * 100);
+      let seedY = Math.floor(lat * 100);
+      
+      // Draw grid-based local avenues underneath the fog
+      for (let i = -10; i <= 10; i++) {
+        let xPos = cX + (i * 120) - ((lng * scaleFactor) % 120);
+        ctx.beginPath();
+        ctx.moveTo(xPos, 0);
+        ctx.lineTo(xPos, canvas.height);
+        ctx.stroke();
+      }
+      for (let j = -10; j <= 10; j++) {
+        let yPos = cY + (j * 120) + ((lat * scaleFactor) % 120);
+        ctx.beginPath();
+        ctx.moveTo(0, yPos);
+        ctx.lineTo(canvas.width, yPos);
+        ctx.stroke();
+      }
+
+      // Draw stylized diagonal highways
+      ctx.strokeStyle = "rgba(0, 160, 255, 0.12)";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(cX - 1000, cY - 1000); ctx.lineTo(cX + 1000, cY + 1000);
+      ctx.moveTo(cX - 1000, cY + 1000); ctx.lineTo(cX + 1000, cY - 1000);
+      ctx.stroke();
+    }
+
+    function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      drawFog();
+      render();
     }
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', resize);
 
-    function initMap(lat, lng) {
-      // Create a gorgeous Sci-Fi Dark Vector style map base
-      map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/dark-v11', 
-        center: [lng, lat],
-        zoom: 15,
-        interactive: false // Lock controls so user position rules movement
-      });
+    function render() {
+      if (!currentPos) return;
 
-      // Design custom Neon neon node indicator element
-      playerMarkerElement = document.createElement('div');
-      playerMarkerElement.style.width = '16px';
-      playerMarkerElement.style.height = '16px';
-      playerMarkerElement.style.backgroundColor = '#00ffcc';
-      playerMarkerElement.style.borderRadius = '50%';
-      playerMarkerElement.style.boxShadow = '0 0 15px #00ffcc';
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
 
-      playerMarker = new mapboxgl.Marker(playerMarkerElement)
-        .setLngLat([lng, lat])
-        .addTo(map);
-
-      map.on('move', drawFog);
-      resizeCanvas();
-    }
-
-    function drawFog() {
-      if (!map || !ctx || !currentPos) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#16191f"; // Smooth RPG fog layer
+      // 1. Clear background
+      ctx.fillStyle = "#080a0f";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.globalCompositeOperation = 'destination-out';
+      // 2. Draw our local generated vector layout blueprint
+      drawProceduralStreets(centerX, centerY, currentPos.lat, currentPos.lng);
 
+      // 3. Render Overlaid Fog Layer using offscreen calculations
+      const fogCanvas = document.createElement('canvas');
+      fogCanvas.width = canvas.width;
+      fogCanvas.height = canvas.height;
+      const fCtx = fogCanvas.getContext('2d');
+
+      // Heavy Sci-Fi charcoal shroud
+      fCtx.fillStyle = "#13161c";
+      fCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Cut out trail areas where you have walked
+      fCtx.globalCompositeOperation = 'destination-out';
       history.forEach(pt => {
-        // Map native geographical coordinates directly to current screen pixel location
-        const screenPos = map.project([pt.lng, pt.lat]);
+        // Calculate offset position on screen relative to where you stand right now
+        const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor;
+        const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
         
-        // Dynamic fog circle size modifier
-        const rad = 90; 
-        
-        const grad = ctx.createRadialGradient(screenPos.x, screenPos.y, rad * 0.1, screenPos.x, screenPos.y, rad);
+        const rad = 85; // Visibility trail brush radius
+        const grad = fCtx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(screenPos.x, screenPos.y, rad, 0, Math.PI * 2); ctx.fill();
+        fCtx.fillStyle = grad;
+        fCtx.beginPath(); fCtx.arc(scrX, scrY, rad, 0, Math.PI * 2); fCtx.fill();
       });
 
-      ctx.globalCompositeOperation = 'source-over';
+      // Layer the computed fog overlay directly down onto our grid
+      ctx.drawImage(fogCanvas, 0, 0);
+
+      // 4. Render Neon Node tracking indicator
+      ctx.fillStyle = "#00ffcc";
+      ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; 
     }
 
     function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      currentPos = { lat: lat, lng: lng };
 
+      if (!startPos) startPos = { lat: lat, lng: lng };
+      currentPos = { lat: lat, lng: lng };
+      
+      // Lock movement path plot point
       history.push({ lat: lat, lng: lng });
 
-      if (!map) {
-        initMap(lat, lng);
-      } else {
-        playerMarker.setLngLat([lng, lat]);
-        map.setCenter([lng, lat]);
-        drawFog();
-      }
-
       document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
+      render();
     }
 
     if (navigator.geolocation) {
@@ -130,6 +142,8 @@
         document.getElementById('msg').innerHTML = `GPS DATA FAULT: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
+
+    resize();
   </script>
 </body>
 </html>
