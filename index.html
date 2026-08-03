@@ -9,17 +9,17 @@
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
     
-    /* Layer 1: Pinned background container holding the real map image */
+    /* Layer 1: Background map container holding the real map image */
     #mapWrapper {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 800px; height: 800px; z-index: 1; display: none;
     }
-    #realMapImg { width: 100%; height: 100%; display: block; }
+    #realMapImg { width: 100%; height: 100%; display: block; filter: brightness(0.7) contrast(1.1); }
 
-    /* Layer 2: Transparent fog screen floating directly on top of the map */
+    /* Layer 2: Transparent canvas fog screen sitting on top of the map */
     #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
     
-    /* Layer 3: Neon Green Player Character Indicator Node */
+    /* Layer 3: Neon Green Player Tracking Dot */
     #playerNode {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 14px; height: 14px; background: #00ffcc; border-radius: 50%;
@@ -53,13 +53,10 @@
     let mapAnchorPos = null; 
     let isImageLoading = false;
 
-    // PASTE YOUR STADIA MAPS API KEY HERE
-    const apiKey = '01b96ccb-ecc4-4202-b16e-8e39bcfea9fb';
-
-    // Geographic distance indicating a 1-mile perimeter boundary safety box
+    // Geometric distance box representing roughly a 1-mile map window perimeter
     const boundaryDelta = 0.0145; 
     
-    // Zoom conversion factors for the map dimension scale matching
+    // Exact layout scales matching zoom 14 pixel coordinates
     const metersPerPixel = 1.35;
     const pixelsPerDegreeLng = 111320 / metersPerPixel;
 
@@ -70,14 +67,13 @@
     }
     window.addEventListener('resize', resize);
 
-    // Pulls a high-contrast Alidade Smooth Dark street map layout matching video game aesthetics
     function fetchMapChunk(lat, lng) {
       if (isImageLoading) return;
       isImageLoading = true;
-      document.getElementById('msg').innerHTML = "SYNCING NEW SECTOR...<br>DOWNLOADING MAP BLUEPRINT";
+      document.getElementById('msg').innerHTML = "SYNCING NEW SECTOR...<br>DOWNLOADING KEYLESS MAP";
 
-      // Pre-load via secure Stadia pipeline mapping your precise latitude/longitude coordinates
-      realMapImg.src = `https://stadiamaps.com{lat},${lng}&zoom=14&width=800&height=800&api_key=${apiKey}`;
+      // FIX: Switched to the public OpenStreetMap static server (Requires ZERO API Keys)
+      realMapImg.src = `https://openstreetmap.de{lat},${lng}&zoom=14&size=800x800&maptype=mapnik`;
       
       realMapImg.onload = () => {
         mapAnchorPos = { lat: lat, lng: lng };
@@ -89,7 +85,8 @@
       
       realMapImg.onerror = () => {
         isImageLoading = false;
-        document.getElementById('msg').innerHTML = "<span style='color:red'>API KEY INVALID</span><br>Check your Stadia dashboard entry.";
+        document.getElementById('msg').innerHTML = "<span style='color:red'>SERVER ERROR</span><br>Retrying network download connection...";
+        setTimeout(() => { fetchMapChunk(lat, lng); }, 4000);
       };
     }
 
@@ -102,32 +99,30 @@
       const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
       const pixelsPerDegreeLat = 111000 / metersPerPixel;
 
-      // Calculate distance walked away from the fixed background map's center spot
+      // Calculate background map sliding offsets
       const deltaLng = currentPos.lng - mapAnchorPos.lng;
       const deltaLat = currentPos.lat - mapAnchorPos.lat;
 
-      // Physically slide the background map layer behind the screen elements
       const shiftX = -(deltaLng * pixelsPerDegreeLng * cosLat);
       const shiftY = (deltaLat * pixelsPerDegreeLat);
       mapWrapper.style.transform = `translate(calc(-50% + ${shiftX}px), calc(-50% + ${shiftY}px))`;
 
-      // 2. Draw the Opaque Fog Overlay screen
+      // 2. Draw Solid Fog Screen
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#111317"; // Dark volumetric shroud color
+      ctx.fillStyle = "#111317"; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 3. Cut out historical movement paths dynamically
+      // 3. Carve holes out of the fog matching your step coordinates
       ctx.globalCompositeOperation = 'destination-out';
 
       history.forEach(pt => {
         const dLng = pt.lng - currentPos.lng;
         const dLat = pt.lat - currentPos.lat;
 
-        // Position the clear hole accurately over the streets you walked on
         const scrX = centerX + (dLng * pixelsPerDegreeLng * cosLat);
         const scrY = centerY - (dLat * pixelsPerDegreeLat);
         
-        const rad = 95; // Radius size of revealed map area
+        const rad = 95; // Radius of revealed terrain visibility hole
         const grad = ctx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -145,11 +140,11 @@
       
       currentPos = { lat: lat, lng: lng };
 
-      // Establish initial map quadrant chunk setup on cold start
+      // Initialize map screen coordinates on app startup
       if (!mapAnchorPos) {
         fetchMapChunk(lat, lng);
       } else {
-        // Evaluate boundary parameters. If crossed, download adjacent 1-mile map chunk
+        // Shift regional map view if moving beyond 1-mile boundaries
         const latDiff = Math.abs(lat - mapAnchorPos.lat);
         const lngDiff = Math.abs(lng - mapAnchorPos.lng);
 
@@ -158,7 +153,6 @@
         }
       }
 
-      // Drop visibility path node to history log stack
       history.push({ lat: lat, lng: lng });
       renderFog();
 
