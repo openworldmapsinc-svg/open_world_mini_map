@@ -82,7 +82,21 @@
             // Fetch standard map background chunk directly through native image loader
             const img = new Image();
             img.crossOrigin = "anonymous";
-            img.src = `https://openstreetmap.org{zoom}/${tX}/${tY}.png`;
+          if (cachedTiles[tileKey] && cachedTiles[tileKey].complete) {
+            ctx.drawImage(cachedTiles[tileKey], startX, startY);
+          } else if (!cachedTiles[tileKey]) {
+            // FIX: Added a random timestamp (?t=) to bypass aggressive browser image blocks
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = `https://openstreetmap.org{zoom}/${tX}/${tY}.png?t=${Date.now()}`;
+            img.onload = () => { render(); };
+            img.onerror = () => {
+              // Fallback text if the image server is strictly blocked
+              document.getElementById('msg').innerHTML = "MAP LOADING BLOCKED<br>Switch to the standalone Safari App";
+            };
+            cachedTiles[tileKey] = img;
+          }
+
             img.onload = () => { render(); };
             cachedTiles[tileKey] = img;
           }
