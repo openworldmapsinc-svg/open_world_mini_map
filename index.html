@@ -35,32 +35,60 @@
     <button id="startBtn" onclick="requestGPS()">FORCE START GPS</button>
   </div>
 
-  <script>
+    <script>
     // System Logger to catch silent failures
     window.onerror = function(msg, url, line) {
       document.getElementById('status').innerHTML = `<span style="color:red">Error: ${msg} on line ${line}</span>`;
       return false;
     };
 
-    // 1. Initialize Map Base
-    const map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 14); 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    let map, playerMarker, canvas, ctx;
+    let history = [];
 
-    const playerMarker = L.circleMarker([34.8526, -82.3940], { radius: 9, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
+    // FIX: Wait for the network files to finish downloading before building the map
+    window.addEventListener('load', () => {
+      initApp();
+    });
 
-    // 2. Setup Fog Canvas
-    const canvas = document.getElementById('fogCanvas');
-    const ctx = canvas.getContext('2d');
-    let history = []; 
+    function initApp() {
+      document.getElementById('status').innerHTML = "<div>Building World Map...</div>";
+      
+      // 1. Initialize Map Base Safely
+      map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 14); 
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+      playerMarker = L.circleMarker([34.8526, -82.3940], { radius: 9, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
+
+      // 2. Setup Fog Canvas
+      canvas = document.getElementById('fogCanvas');
+      ctx = canvas.getContext('2d');
+
+      window.addEventListener('resize', resizeCanvas);
+      
+      map.on('move', drawFog);
+      map.on('zoomend', drawFog);
+
+      resizeCanvas();
+      
+      // Trigger GPS request now that map is stable
+      document.getElementById('status').innerHTML = `
+        <div>Systems Ready.</div>
+        <button id="startBtn" onclick="requestGPS()">START GPS TRACKING</button>
+      `;
+      
+      // Auto-attempt connection
+      requestGPS();
+    }
 
     function resizeCanvas() {
+      if (!canvas) return;
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       drawFog();
     }
-    window.addEventListener('resize', resizeCanvas);
 
     function drawFog() {
+      if (!ctx || !map) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#22252a"; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -81,16 +109,15 @@
       ctx.globalCompositeOperation = 'source-over';
     }
 
-    map.on('move', drawFog);
-    map.on('zoomend', drawFog);
-
     // 3. Location Capture Core
     function updateLocation(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
       
-      playerMarker.setLatLng([lat, lng]);
-      map.setView([lat, lng], map.getZoom());
+      if (playerMarker && map) {
+        playerMarker.setLatLng([lat, lng]);
+        map.setView([lat, lng], map.getZoom());
+      }
       
       history.push({ lat: lat, lng: lng, radius: 80 });
       drawFog();
@@ -118,12 +145,6 @@
         document.getElementById('status').innerText = "Device lacks GPS hardware.";
       }
     }
-
-    // Auto-run trigger
-    setTimeout(() => {
-      resizeCanvas();
-      requestGPS();
-    }, 800);
   </script>
 </body>
 </html>
