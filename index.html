@@ -1,173 +1,1018 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Infinite Map Tracker</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.png">
-  <style>
-    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0c0f12; font-family: monospace; }
-    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-    #status {
-      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-      z-index: 2; background: rgba(12, 15, 18, 0.95); color: #00ffcc; padding: 15px;
-      border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fogbound">
+<meta name="theme-color" content="#0a0e16">
+<meta name="description" content="A fog-of-war map of the real world. Walk to reveal the terrain.">
+<title>Fogbound</title>
+
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<style>
+  :root{
+    --ink:#05080f;
+    --fog:#0a0e16;
+    --brass:#c8a45c;
+    --brass-dim:#8a7139;
+    --parchment:#e8e0cd;
+    --parchment-dim:#9a927f;
+    --ember:#e0724a;
+    --glass:rgba(10,14,22,.82);
+    --hairline:rgba(200,164,92,.28);
+    --display: "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --util: ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --safe-t:env(safe-area-inset-top,0px);
+    --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-l:env(safe-area-inset-left,0px);
+    --safe-r:env(safe-area-inset-right,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);
+    font-family:var(--util);color:var(--parchment);
+    overscroll-behavior:none;touch-action:manipulation}
+  #map{position:absolute;inset:0;background:var(--ink)}
+
+  /* ---------- Leaflet chrome ---------- */
+  .leaflet-container{background:#11151f;font-family:var(--util)}
+  .leaflet-control-attribution{
+    background:rgba(5,8,15,.7)!important;color:var(--parchment-dim)!important;
+    font-size:9px!important;padding:1px 6px!important;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .leaflet-control-attribution a{color:var(--brass-dim)!important}
+
+  /* ---------- Player ---------- */
+  .you{position:relative;width:26px;height:26px}
+  .you i{position:absolute;inset:7px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#fff,var(--brass) 60%,#7a5f22);
+    box-shadow:0 0 12px 3px rgba(200,164,92,.55),0 0 2px 1px rgba(0,0,0,.6)}
+  .you b{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(200,164,92,.7);
+    animation:ping 2.6s cubic-bezier(.2,.6,.3,1) infinite}
+  @keyframes ping{0%{transform:scale(.45);opacity:.9}70%{transform:scale(1.9);opacity:0}100%{opacity:0}}
+
+  /* ---------- POI marker ---------- */
+  .poi{width:34px;height:34px;display:grid;place-items:center;transform:translateY(-2px)}
+  .poi svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.8))}
+  .poi.new{animation:bloom .9s cubic-bezier(.2,.8,.2,1)}
+  @keyframes bloom{0%{transform:scale(0) rotate(-25deg);opacity:0}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+
+  .leaflet-tooltip.poi-tip{background:var(--glass);border:1px solid var(--hairline);
+    color:var(--parchment);font-family:var(--display);font-size:13px;letter-spacing:.06em;
+    border-radius:3px;padding:4px 9px;box-shadow:0 4px 18px rgba(0,0,0,.6);
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  .leaflet-tooltip.poi-tip:before{border-top-color:var(--hairline)}
+
+  /* ---------- HUD ---------- */
+  .hud{position:absolute;z-index:800;pointer-events:none}
+  .hud > *{pointer-events:auto}
+
+  #topbar{top:calc(var(--safe-t) + 10px);left:calc(var(--safe-l) + 12px);
+    right:calc(var(--safe-r) + 12px);display:flex;gap:10px;align-items:flex-start}
+
+  .plate{background:var(--glass);border:1px solid var(--hairline);border-radius:3px;
+    backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
+    box-shadow:0 6px 24px rgba(0,0,0,.5)}
+
+  #readout{padding:8px 12px 9px;flex:1;min-width:0}
+  #readout .title{font-family:var(--display);font-size:15px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--brass);line-height:1;margin-bottom:7px}
+  #readout .grid{display:flex;gap:14px;flex-wrap:wrap}
+  #readout .cell{min-width:0}
+  #readout .k{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--parchment-dim)}
+  #readout .v{font-size:13px;color:var(--parchment);white-space:nowrap;font-variant-numeric:tabular-nums}
+  #readout .v small{font-size:9px;color:var(--parchment-dim)}
+
+  .btn{width:44px;height:44px;display:grid;place-items:center;border:1px solid var(--hairline);
+    background:var(--glass);color:var(--brass);border-radius:3px;cursor:pointer;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);flex:none;
+    box-shadow:0 6px 24px rgba(0,0,0,.5);transition:transform .12s,border-color .2s}
+  .btn:active{transform:scale(.93)}
+  .btn.on{border-color:var(--brass);color:var(--ember)}
+  .btn:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .stack{display:flex;flex-direction:column;gap:10px}
+
+  /* ---------- Discovery banner ---------- */
+  #banner{position:absolute;left:0;right:0;top:34%;z-index:900;text-align:center;
+    pointer-events:none;opacity:0}
+  #banner.show{animation:unfurl 3.6s ease forwards}
+  #banner .rule{height:1px;background:linear-gradient(90deg,transparent,var(--brass),transparent);
+    margin:0 auto 10px;width:min(78vw,420px)}
+  #banner .rule.b{margin:10px auto 0}
+  #banner .eyebrow{font-size:9px;letter-spacing:.42em;text-transform:uppercase;color:var(--brass-dim)}
+  #banner .name{font-family:var(--display);font-size:clamp(22px,7vw,34px);letter-spacing:.06em;
+    color:var(--parchment);text-shadow:0 2px 24px rgba(0,0,0,.9);margin-top:4px}
+  @keyframes unfurl{0%{opacity:0;transform:translateY(14px) scale(.96)}
+    12%{opacity:1;transform:none}75%{opacity:1}100%{opacity:0}}
+
+  /* ---------- Sheet ---------- */
+  #scrim{position:absolute;inset:0;background:rgba(3,5,10,.6);z-index:950;opacity:0;
+    pointer-events:none;transition:opacity .25s;backdrop-filter:blur(2px)}
+  #scrim.show{opacity:1;pointer-events:auto}
+  #sheet{position:absolute;left:0;right:0;bottom:0;z-index:960;max-height:82vh;
+    background:linear-gradient(180deg,#0d121c,#080b12);
+    border-top:1px solid var(--hairline);border-radius:14px 14px 0 0;
+    transform:translateY(102%);transition:transform .3s cubic-bezier(.2,.8,.2,1);
+    display:flex;flex-direction:column;box-shadow:0 -20px 60px rgba(0,0,0,.7)}
+  #sheet.show{transform:none}
+  #sheet .grab{width:38px;height:3px;border-radius:2px;background:var(--brass-dim);
+    margin:9px auto 4px;flex:none;opacity:.6}
+  .tabs{display:flex;gap:2px;padding:6px 14px 0;flex:none}
+  .tab{flex:1;padding:9px 0;text-align:center;font-size:10px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--parchment-dim);border-bottom:1px solid rgba(200,164,92,.16);
+    cursor:pointer;background:none;border-top:0;border-left:0;border-right:0}
+  .tab.on{color:var(--brass);border-bottom-color:var(--brass)}
+  .pane{padding:14px 16px calc(20px + var(--safe-b));overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
+  .pane.on{display:block}
+
+  .poi-row{display:flex;align-items:center;gap:12px;padding:11px 2px;
+    border-bottom:1px solid rgba(200,164,92,.12)}
+  .poi-row .dot{width:9px;height:9px;border-radius:50%;flex:none;
+    background:var(--parchment-dim);box-shadow:0 0 0 3px rgba(154,146,127,.12)}
+  .poi-row.found .dot{background:var(--brass);box-shadow:0 0 8px 2px rgba(200,164,92,.4)}
+  .poi-row .meta{flex:1;min-width:0}
+  .poi-row .n{font-family:var(--display);font-size:15px;color:var(--parchment);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .poi-row .s{font-size:10px;color:var(--parchment-dim);letter-spacing:.06em;margin-top:2px}
+  .poi-row button{background:none;border:1px solid var(--hairline);color:var(--parchment-dim);
+    border-radius:3px;padding:6px 9px;font-family:var(--util);font-size:10px;cursor:pointer}
+
+  .empty{padding:26px 8px;text-align:center;color:var(--parchment-dim);font-size:12px;line-height:1.7}
+  .empty b{display:block;font-family:var(--display);font-size:16px;color:var(--parchment);
+    margin-bottom:6px;letter-spacing:.04em}
+
+  label.field{display:block;margin:13px 0 0}
+  label.field .lab{font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--parchment-dim);display:flex;justify-content:space-between;margin-bottom:5px}
+  label.field .lab span{color:var(--brass);letter-spacing:.04em}
+  input[type=text],input[type=number],select{width:100%;background:#080c14;color:var(--parchment);
+    border:1px solid var(--hairline);border-radius:3px;padding:10px;font-family:var(--util);
+    font-size:14px;-webkit-appearance:none;appearance:none}
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;background:none;height:26px}
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--brass-dim)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;
+    border-radius:50%;background:var(--brass);margin-top:-8px;box-shadow:0 0 8px rgba(200,164,92,.5)}
+  input[type=range]::-moz-range-track{height:2px;background:var(--brass-dim)}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px;border:0;border-radius:50%;background:var(--brass)}
+
+  .act{width:100%;padding:12px;margin-top:12px;background:rgba(200,164,92,.1);
+    border:1px solid var(--hairline);color:var(--brass);border-radius:3px;
+    font-family:var(--util);font-size:11px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
+  .act:active{background:rgba(200,164,92,.2)}
+  .act.warn{color:var(--ember);border-color:rgba(224,114,74,.4);background:rgba(224,114,74,.08)}
+  .row2{display:flex;gap:10px}
+  .row2 .act{margin-top:12px}
+  .note{font-size:10.5px;color:var(--parchment-dim);line-height:1.65;margin-top:14px}
+  .sect{font-size:9px;letter-spacing:.24em;text-transform:uppercase;color:var(--brass-dim);
+    margin:22px 0 2px;padding-bottom:6px;border-bottom:1px solid rgba(200,164,92,.16)}
+  .sect:first-child{margin-top:4px}
+
+  /* ---------- Toast ---------- */
+  #toast{position:absolute;left:50%;bottom:calc(var(--safe-b) + 26px);transform:translateX(-50%) translateY(12px);
+    z-index:970;background:var(--glass);border:1px solid var(--hairline);border-radius:3px;
+    padding:9px 15px;font-size:11.5px;letter-spacing:.04em;color:var(--parchment);opacity:0;
+    transition:opacity .25s,transform .25s;pointer-events:none;max-width:86vw;text-align:center;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  #toast.show{opacity:1;transform:translateX(-50%)}
+
+  /* ---------- Sim pad ---------- */
+  #pad{position:absolute;right:calc(var(--safe-r) + 16px);bottom:calc(var(--safe-b) + 16px);
+    z-index:800;display:none;grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px);gap:5px}
+  #pad.show{display:grid}
+  #pad button{grid-column:auto;background:var(--glass);border:1px solid var(--hairline);
+    color:var(--brass);border-radius:3px;font-size:15px;cursor:pointer;
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-family:var(--util)}
+  #pad button:active{background:rgba(200,164,92,.22)}
+  #pad .spacer{visibility:hidden}
+
+  /* ---------- Start gate ---------- */
+  #gate{position:absolute;inset:0;z-index:1000;background:
+     radial-gradient(120% 80% at 50% 0%,#141b28,#05080f 70%);
+     display:flex;flex-direction:column;align-items:center;justify-content:center;
+     padding:32px;text-align:center;transition:opacity .5s}
+  #gate.gone{opacity:0;pointer-events:none}
+  #gate .mark{width:86px;height:86px;margin-bottom:24px;opacity:.92}
+  #gate h1{font-family:var(--display);font-weight:400;font-size:clamp(30px,10vw,44px);
+    letter-spacing:.16em;text-transform:uppercase;margin:0;color:var(--parchment)}
+  #gate .sub{font-size:9px;letter-spacing:.4em;text-transform:uppercase;color:var(--brass-dim);margin-top:12px}
+  #gate p{max-width:34ch;font-size:12.5px;line-height:1.8;color:var(--parchment-dim);margin:26px 0 30px}
+  #gate .go{padding:15px 34px;background:transparent;border:1px solid var(--brass);
+    color:var(--brass);font-family:var(--util);font-size:11px;letter-spacing:.28em;
+    text-transform:uppercase;border-radius:3px;cursor:pointer}
+  #gate .go:active{background:rgba(200,164,92,.14)}
+  #gate .alt{margin-top:16px;background:none;border:0;color:var(--parchment-dim);
+    font-family:var(--util);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    text-decoration:underline;text-underline-offset:4px;cursor:pointer}
+  #gate .err{color:var(--ember);font-size:11px;margin-top:18px;max-width:32ch;line-height:1.6;min-height:1em}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+  }
+</style>
 </head>
 <body>
 
-  <canvas id="gameCanvas"></canvas>
-  <div id="status"><div id="msg">GPS ACTIVE. ACQUIRING REAL MAP LAYERS...</div></div>
+<div id="map"></div>
 
-  <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    
-    let history = []; 
-    let currentPos = null; 
-    let mapAnchorPos = null; 
-    let mapTileImages = {}; // Caches downloaded map square layouts safely
-    
-    const zoom = 14; // Perfectly optimized street map altitude scale
-    const boundaryDelta = 0.0145; // 1-mile boundary limits threshold
+<!-- HUD -->
+<div class="hud" id="topbar">
+  <div class="plate" id="readout">
+    <div class="title">Fogbound</div>
+    <div class="grid">
+      <div class="cell"><div class="k">Charted</div><div class="v" id="s-area">0.00 <small>mi²</small></div></div>
+      <div class="cell"><div class="k">Found</div><div class="v" id="s-poi">0 / 0</div></div>
+      <div class="cell"><div class="k">Signal</div><div class="v" id="s-acc">—</div></div>
+    </div>
+  </div>
+  <div class="stack">
+    <button class="btn" id="b-center" title="Recenter on you" aria-label="Recenter on you">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/>
+        <path d="M12 1v3M12 20v3M1 12h3M20 12h3"/></svg>
+    </button>
+    <button class="btn" id="b-sheet" title="Points of interest" aria-label="Points of interest">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+    </button>
+    <button class="btn" id="b-drop" title="Place a point here" aria-label="Place a point of interest">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M12 5v14M5 12h14"/></svg>
+    </button>
+  </div>
+</div>
 
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      render();
+<div id="banner">
+  <div class="rule"></div>
+  <div class="eyebrow">Discovered</div>
+  <div class="name" id="banner-name"></div>
+  <div class="rule b"></div>
+</div>
+
+<div id="pad">
+  <span class="spacer"></span><button data-dir="n">▲</button><span class="spacer"></span>
+  <button data-dir="w">◀</button><button data-dir="stop">■</button><button data-dir="e">▶</button>
+  <span class="spacer"></span><button data-dir="s">▼</button><span class="spacer"></span>
+</div>
+
+<div id="toast"></div>
+<div id="scrim"></div>
+
+<div id="sheet">
+  <div class="grab"></div>
+  <div class="tabs">
+    <button class="tab on" data-pane="p-poi">Points</button>
+    <button class="tab" data-pane="p-set">Expedition</button>
+  </div>
+
+  <div class="pane on" id="p-poi">
+    <div id="poi-list"></div>
+    <button class="act" id="a-add-here">Place point at my location</button>
+    <div class="row2">
+      <button class="act" id="a-add-coord">Add by coordinates</button>
+      <button class="act" id="a-seed">Scatter 6 nearby</button>
+    </div>
+    <div class="note">Use the + button on the map to place a point by tapping the terrain.
+      Points stay hidden until you come within trigger range, then they clear a wide circle of fog.</div>
+  </div>
+
+  <div class="pane" id="p-set">
+    <div class="sect">Fog</div>
+    <label class="field"><span class="lab">Trail clearing radius <span id="l-rev"></span></span>
+      <input type="range" id="f-rev" min="15" max="200" step="5"></label>
+    <label class="field"><span class="lab">Point clearing radius <span id="l-poirev"></span></span>
+      <input type="range" id="f-poirev" min="100" max="1200" step="25"></label>
+    <label class="field"><span class="lab">Point trigger range <span id="l-trig"></span></span>
+      <input type="range" id="f-trig" min="10" max="200" step="5"></label>
+
+    <div class="sect">View</div>
+    <label class="field"><span class="lab">Visible radius <span id="l-view"></span></span>
+      <input type="range" id="f-view" min="0.25" max="3" step="0.25"></label>
+    <label class="field"><span class="lab">Shift when you reach <span id="l-shift"></span></span>
+      <input type="range" id="f-shift" min="0.4" max="0.95" step="0.05"></label>
+    <label class="field"><span class="lab">Terrain</span>
+      <select id="f-style">
+        <option value="voyager">Voyager — muted street</option>
+        <option value="dark">Nightfall — dark street</option>
+        <option value="osm">Standard OpenStreetMap</option>
+        <option value="terrain">Topographic</option>
+        <option value="satellite">Satellite</option>
+      </select></label>
+
+    <div class="sect">Field test</div>
+    <label class="field"><span class="lab">Walk with the d-pad instead of GPS <span id="l-sim"></span></span>
+      <input type="range" id="f-sim" min="0" max="1" step="1"></label>
+    <div class="note">Simulation lets you test on a desktop. Arrow keys or WASD also work; hold Shift to sprint.</div>
+
+    <div class="sect">Journal</div>
+    <div class="row2">
+      <button class="act" id="a-export">Export save</button>
+      <button class="act" id="a-import">Import save</button>
+    </div>
+    <button class="act warn" id="a-reset">Re-fog the entire map</button>
+    <div class="note" id="build-note"></div>
+  </div>
+</div>
+
+<div id="gate">
+  <svg class="mark" viewBox="0 0 100 100" fill="none" stroke="#c8a45c" stroke-width="1.2">
+    <circle cx="50" cy="50" r="46" opacity=".35"/>
+    <circle cx="50" cy="50" r="34" opacity=".2"/>
+    <path d="M50 6 L58 42 L94 50 L58 58 L50 94 L42 58 L6 50 L42 42 Z" fill="rgba(200,164,92,.10)"/>
+    <circle cx="50" cy="50" r="5" fill="#c8a45c" stroke="none"/>
+  </svg>
+  <h1>Fogbound</h1>
+  <div class="sub">Chart your own ground</div>
+  <p>Everything past your doorstep is dark. Walk, and the map remembers where you have been.</p>
+  <button class="go" id="g-start">Begin the survey</button>
+  <button class="alt" id="g-sim">Test without GPS</button>
+  <div class="err" id="g-err"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════
+   CONFIG — edit these defaults, or change them live in Expedition
+   ═══════════════════════════════════════════════════════════════ */
+const MILE = 1609.344;
+
+const DEFAULTS = {
+  viewRadiusMiles : 1,     // half-width of the visible window
+  shiftThreshold  : 0.72,  // shift the window at this fraction of the radius
+  revealRadiusM   : 55,    // fog cleared as you walk
+  poiRevealRadiusM: 400,   // fog cleared when a point is found
+  poiTriggerRadiusM: 45,   // how close you must get to trigger a point
+  maxAccuracyM    : 75,    // ignore GPS fixes worse than this
+  style           : 'voyager',
+  sim             : false
+};
+
+// Starter points of interest. lat/lng in decimal degrees.
+// `radius` (optional) overrides the global point clearing radius.
+const SEED_POIS = [
+  // { name:'The Old Mill', lat:34.8526, lng:-82.3940, radius:500 },
+];
+
+const STYLES = {
+  voyager  : { url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+               attr:'&copy; OpenStreetMap &copy; CARTO', sub:'abcd', max:20 },
+  dark     : { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+               attr:'&copy; OpenStreetMap &copy; CARTO', sub:'abcd', max:20 },
+  osm      : { url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+               attr:'&copy; OpenStreetMap contributors', max:19 },
+  terrain  : { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+               attr:'&copy; OpenTopoMap (CC-BY-SA)', sub:'abc', max:17 },
+  satellite: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+               attr:'Imagery &copy; Esri', max:19 }
+};
+
+const CELL_M   = 20;      // grid used to de-dupe trail dots + measure charted area
+const MAX_DOTS = 12000;   // hard ceiling on stored reveal circles
+const STORE    = 'fogbound.v1';
+
+/* ═══════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════ */
+let cfg     = Object.assign({}, DEFAULTS);
+let reveals = [];                 // {lat,lng,r,t:'trail'|'poi',born?}
+let pois    = [];                 // {id,name,lat,lng,radius?,found}
+let trailCells = new Set();       // de-dupe keys
+let areaCells  = new Set();       // charted-area keys
+
+let map, tiles, fogCanvas, fctx, noisePat;
+let youMarker, accCircle;
+let poiLayer = {};                // id -> marker
+let pos = null;                   // {lat,lng,acc}
+let anchor = null;                // center of the current window
+let viewZoom = null;
+let watchId = null;
+let simPos = null, simVec = {x:0,y:0}, simSprint = false, simTimer = null;
+let saveTimer = null;
+let placeMode = false;
+let wakeLock = null;
+
+/* ═══════════════════════════════════════════════════════════════
+   PERSISTENCE
+   ═══════════════════════════════════════════════════════════════ */
+function load(){
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch(e){}
+  if (raw){
+    cfg     = Object.assign({}, DEFAULTS, raw.cfg || {});
+    reveals = Array.isArray(raw.reveals) ? raw.reveals : [];
+    pois    = Array.isArray(raw.pois)    ? raw.pois    : [];
+  }
+  if (!pois.length && SEED_POIS.length){
+    pois = SEED_POIS.map(p => Object.assign({ id:uid(), found:false }, p));
+  }
+  rebuildCells();
+}
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(function(){
+    try {
+      localStorage.setItem(STORE, JSON.stringify({
+        cfg: cfg,
+        pois: pois,
+        reveals: reveals.map(function(r){
+          return { lat:+r.lat.toFixed(5), lng:+r.lng.toFixed(5), r:Math.round(r.r), t:r.t };
+        })
+      }));
+    } catch(e){ toast('Storage is full — old trail may not be saved.'); }
+  }, 800);
+}
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function rebuildCells(){
+  trailCells = new Set(); areaCells = new Set();
+  for (var i=0;i<reveals.length;i++){
+    var r = reveals[i];
+    if (r.t === 'trail') trailCells.add(cellKey(r.lat, r.lng));
+    stampArea(r.lat, r.lng, r.r);
+  }
+}
+function cellKey(lat,lng){
+  var mLat = CELL_M / 111320;
+  var mLng = CELL_M / (111320 * Math.max(0.15, Math.cos(lat*Math.PI/180)));
+  return Math.round(lat/mLat) + ':' + Math.round(lng/mLng);
+}
+function stampArea(lat,lng,r){
+  var mLat = CELL_M / 111320;
+  var mLng = CELL_M / (111320 * Math.max(0.15, Math.cos(lat*Math.PI/180)));
+  var n = Math.min(60, Math.ceil(r / CELL_M));
+  var cy = Math.round(lat/mLat), cx = Math.round(lng/mLng);
+  for (var dy=-n; dy<=n; dy++)
+    for (var dx=-n; dx<=n; dx++)
+      if (dx*dx + dy*dy <= n*n) areaCells.add((cy+dy)+':'+(cx+dx));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAP
+   ═══════════════════════════════════════════════════════════════ */
+function metersPerPixel(lat, z){
+  return 156543.03392 * Math.cos(lat*Math.PI/180) / Math.pow(2, z);
+}
+function zoomForWindow(lat){
+  var s = map.getSize();
+  var halfMin = Math.max(80, Math.min(s.x, s.y) / 2);
+  var target  = MILE * cfg.viewRadiusMiles / halfMin;       // desired m/px
+  var z = Math.log2(156543.03392 * Math.cos(lat*Math.PI/180) / target);
+  var maxZ = (STYLES[cfg.style] || STYLES.osm).max;
+  return Math.max(3, Math.min(maxZ, z));
+}
+
+function buildMap(){
+  map = L.map('map', {
+    zoomControl:false, attributionControl:true,
+    dragging:false, touchZoom:false, scrollWheelZoom:false,
+    doubleClickZoom:false, boxZoom:false, keyboard:false, tap:false,
+    zoomSnap:0, zoomDelta:0, fadeAnimation:true,
+    center:[39.5,-98.35], zoom:4
+  });
+  map.attributionControl.setPrefix('');
+  setTiles(cfg.style);
+
+  map.createPane('fog');
+  var pane = map.getPane('fog');
+  pane.style.zIndex = 450;
+  pane.style.pointerEvents = 'none';
+
+  fogCanvas = document.createElement('canvas');
+  fogCanvas.style.position = 'absolute';
+  fogCanvas.style.pointerEvents = 'none';
+  pane.appendChild(fogCanvas);
+  fctx = fogCanvas.getContext('2d');
+  noisePat = makeNoise();
+
+  map.on('move zoom viewreset resize zoomend moveend', scheduleDraw);
+  map.on('click', function(e){
+    if (!placeMode) return;
+    setPlaceMode(false);
+    addPoi(e.latlng.lat, e.latlng.lng);
+  });
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', function(){ setTimeout(onResize, 350); });
+}
+
+function setTiles(key){
+  var s = STYLES[key] || STYLES.osm;
+  if (tiles) map.removeLayer(tiles);
+  tiles = L.tileLayer(s.url, {
+    attribution: s.attr, subdomains: s.sub || 'abc',
+    maxZoom: s.max, maxNativeZoom: s.max, detectRetina: true,
+    crossOrigin: true, keepBuffer: 3
+  }).addTo(map);
+}
+
+function onResize(){
+  if (!pos) return;
+  viewZoom = zoomForWindow(pos.lat);
+  map.setView(anchor || [pos.lat,pos.lng], viewZoom, {animate:false});
+  scheduleDraw();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOG LAYER
+   ═══════════════════════════════════════════════════════════════ */
+function makeNoise(){
+  var c = document.createElement('canvas'); c.width = c.height = 140;
+  var x = c.getContext('2d'), img = x.createImageData(140,140), d = img.data;
+  for (var i=0;i<d.length;i+=4){
+    var v = 200 + Math.random()*55;
+    d[i]=v*0.42; d[i+1]=v*0.48; d[i+2]=v*0.62; d[i+3]=Math.random()*16;
+  }
+  x.putImageData(img,0,0);
+  return fctx.createPattern(c,'repeat');
+}
+
+var drawQueued = false;
+function scheduleDraw(){
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(function(){ drawQueued = false; drawFog(); });
+}
+
+function drawFog(){
+  if (!map) return;
+  var size = map.getSize();
+  var dpr  = Math.min(window.devicePixelRatio || 1, 2);
+
+  if (fogCanvas.width !== Math.round(size.x*dpr) || fogCanvas.height !== Math.round(size.y*dpr)){
+    fogCanvas.width  = Math.round(size.x*dpr);
+    fogCanvas.height = Math.round(size.y*dpr);
+    fogCanvas.style.width  = size.x + 'px';
+    fogCanvas.style.height = size.y + 'px';
+  }
+  // keep the canvas pinned to the viewport while the pane translates
+  L.DomUtil.setPosition(fogCanvas, map.containerPointToLayerPoint([0,0]));
+
+  fctx.setTransform(dpr,0,0,dpr,0,0);
+  fctx.clearRect(0,0,size.x,size.y);
+
+  // opaque fog + faint drifting grain
+  fctx.globalCompositeOperation = 'source-over';
+  fctx.fillStyle = '#0a0e16';
+  fctx.fillRect(0,0,size.x,size.y);
+  fctx.fillStyle = noisePat;
+  fctx.fillRect(0,0,size.x,size.y);
+
+  // carve out everything explored
+  var z   = map.getZoom();
+  var mpp = metersPerPixel(map.getCenter().lat, z);
+  var b   = map.getBounds().pad(0.6);
+  var now = performance.now();
+  var animating = false;
+
+  fctx.globalCompositeOperation = 'destination-out';
+  for (var i=0;i<reveals.length;i++){
+    var rv = reveals[i];
+    if (rv.lat < b.getSouth() || rv.lat > b.getNorth() ||
+        rv.lng < b.getWest()  || rv.lng > b.getEast()) continue;
+
+    var rr = rv.r;
+    if (rv.born){
+      var t = (now - rv.born) / 1100;
+      if (t < 1){ rr = rv.r * (1 - Math.pow(1-t, 3)); animating = true; }
+      else delete rv.born;
     }
-    window.addEventListener('resize', resize);
+    var p  = map.latLngToContainerPoint([rv.lat, rv.lng]);
+    var px = rr / mpp;
+    if (px < 0.6) continue;
 
-    // Standard cryptographic algorithms to convert real latitude/longitude into open grid indexing numbers
-    function lon2tile(lon, z) { return Math.floor((lon + 180) / 360 * Math.pow(2, z)); }
-    function lat2tile(lat, z) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z)); }
-    function lon2pixel(lon, z, tileX) { return ((lon + 180) / 360 * Math.pow(2, z) - tileX) * 256; }
-    function lat2pixel(lat, z, tileY) {
-      const latRad = lat * Math.PI / 180;
-      return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, z) - tileY) * 256;
+    var g = fctx.createRadialGradient(p.x,p.y,px*0.52, p.x,p.y,px);
+    g.addColorStop(0,   'rgba(0,0,0,1)');
+    g.addColorStop(0.62,'rgba(0,0,0,0.92)');
+    g.addColorStop(1,   'rgba(0,0,0,0)');
+    fctx.fillStyle = g;
+    fctx.beginPath(); fctx.arc(p.x,p.y,px,0,6.2832); fctx.fill();
+  }
+  fctx.globalCompositeOperation = 'source-over';
+  if (animating) scheduleDraw();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REVEALING
+   ═══════════════════════════════════════════════════════════════ */
+function reveal(lat,lng,r,type,animate){
+  if (type === 'trail'){
+    var k = cellKey(lat,lng);
+    if (trailCells.has(k)) return false;
+    trailCells.add(k);
+  }
+  var item = { lat:lat, lng:lng, r:r, t:type };
+  if (animate) item.born = performance.now();
+  reveals.push(item);
+  if (reveals.length > MAX_DOTS) reveals.splice(0, reveals.length - MAX_DOTS);
+  stampArea(lat,lng,r);
+  save(); scheduleDraw(); paintStats();
+  return true;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   POSITION
+   ═══════════════════════════════════════════════════════════════ */
+function onPosition(lat,lng,acc){
+  var first = !pos;
+  pos = { lat:lat, lng:lng, acc:acc };
+
+  if (first){
+    viewZoom = zoomForWindow(lat);
+    anchor = L.latLng(lat,lng);
+    map.setView(anchor, viewZoom, {animate:false});
+    document.getElementById('gate').classList.add('gone');
+    setTimeout(function(){ var g=document.getElementById('gate'); if(g) g.style.display='none'; }, 600);
+  }
+
+  // player marker
+  if (!youMarker){
+    youMarker = L.marker([lat,lng], {
+      icon: L.divIcon({ className:'', html:'<div class="you"><b></b><i></i></div>',
+                        iconSize:[26,26], iconAnchor:[13,13] }),
+      interactive:false, keyboard:false, zIndexOffset:1000
+    }).addTo(map);
+    accCircle = L.circle([lat,lng], { radius:acc||0, pane:'markerPane', interactive:false,
+      color:'#c8a45c', weight:1, opacity:.3, fillColor:'#c8a45c', fillOpacity:.06 }).addTo(map);
+  } else {
+    youMarker.setLatLng([lat,lng]);
+    accCircle.setLatLng([lat,lng]).setRadius(acc||0);
+  }
+
+  reveal(lat,lng,cfg.revealRadiusM,'trail',false);
+  checkPois(lat,lng);
+  shiftWindow(lat,lng);
+  paintStats();
+}
+
+function shiftWindow(lat,lng){
+  var p = L.latLng(lat,lng);
+  if (!anchor || p.distanceTo(anchor) > MILE * cfg.viewRadiusMiles * cfg.shiftThreshold){
+    anchor = p;
+    map.panTo(p, { animate:true, duration:1.0, easeLinearity:.4 });
+  }
+}
+function recenter(){
+  if (!pos) return;
+  anchor = L.latLng(pos.lat,pos.lng);
+  var newZoom = zoomForWindow(pos.lat);
+  var sameZoom = Math.abs(map.getZoom() - newZoom) < 1e-6;
+  viewZoom = newZoom;
+  map.setView(anchor, viewZoom, sameZoom ? {animate:true, duration:.7} : {animate:false});
+  scheduleDraw();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   POINTS OF INTEREST
+   ═══════════════════════════════════════════════════════════════ */
+function poiRadius(p){ return p.radius || cfg.poiRevealRadiusM; }
+
+function checkPois(lat,lng){
+  var here = L.latLng(lat,lng);
+  for (var i=0;i<pois.length;i++){
+    var p = pois[i];
+    if (p.found) continue;
+    if (here.distanceTo(L.latLng(p.lat,p.lng)) <= cfg.poiTriggerRadiusM){
+      p.found = true;
+      reveal(p.lat, p.lng, poiRadius(p), 'poi', true);
+      drawPoiMarker(p, true);
+      announce(p.name);
+      buzz();
+      save(); paintList(); paintStats();
     }
+  }
+}
 
-    function render() {
-      if (!currentPos || !mapAnchorPos) return;
+function drawPoiMarker(p, isNew){
+  if (poiLayer[p.id]) { map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
+  if (!p.found) return;
+  var svg = '<div class="poi'+(isNew?' new':'')+'">' +
+    '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#c8a45c" stroke-width="1.3">' +
+    '<path d="M12 22s7.2-6.9 7.2-11.4A7.2 7.2 0 1 0 4.8 10.6C4.8 15.1 12 22 12 22z" fill="rgba(10,14,22,.85)"/>' +
+    '<circle cx="12" cy="10.3" r="2.5" fill="#c8a45c" stroke="none"/></svg></div>';
+  poiLayer[p.id] = L.marker([p.lat,p.lng], {
+    icon: L.divIcon({ className:'', html:svg, iconSize:[34,34], iconAnchor:[17,30] })
+  }).addTo(map).bindTooltip(p.name, { direction:'top', offset:[0,-26], className:'poi-tip' });
+}
+function refreshPoiMarkers(){
+  Object.keys(poiLayer).forEach(function(id){ map.removeLayer(poiLayer[id]); });
+  poiLayer = {};
+  pois.forEach(function(p){ drawPoiMarker(p,false); });
+}
 
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
+function setPlaceMode(on){
+  placeMode = on;
+  $('b-drop').classList.toggle('on', on);
+  if (on) toast('Tap the map to place a point.');
+}
 
-      // 1. Calculate active grid tiles for the current anchor location
-      const centerTileX = lon2tile(mapAnchorPos.lng, zoom);
-      const centerTileY = lat2tile(mapAnchorPos.lat, zoom);
-      
-      const pX = lon2pixel(currentPos.lng, zoom, centerTileX);
-      const pY = lat2pixel(currentPos.lat, zoom, centerTileY);
+function ask(msg, def){
+  try { return window.prompt(msg, def); } catch(e){ return def; }
+}
 
-      // Create a background layer grid block inside the canvas cache pipeline
-      const terrainCanvas = document.createElement('canvas');
-      terrainCanvas.width = canvas.width;
-      terrainCanvas.height = canvas.height;
-      const tCtx = terrainCanvas.getContext('2d');
+function addPoi(lat,lng,name){
+  var n = name || ask('Name this point', 'Point ' + (pois.length+1));
+  if (n === null) return;
+  var p = { id:uid(), name:(n||'Unnamed point').trim(), lat:lat, lng:lng, found:false };
+  pois.push(p); save(); paintList(); paintStats();
+  toast('Point placed: ' + p.name);
+  if (pos) checkPois(pos.lat,pos.lng);
+}
 
-      // Pre-paint a midnight layout void background
-      tCtx.fillStyle = "#0c0f12";
-      tCtx.fillRect(0, 0, canvas.width, canvas.height);
+function seedPois(){
+  if (!pos){ toast('Waiting for a position fix.'); return; }
+  var names = ['Waystation','Broken Fountain','The Long Bend','Quiet Hollow','Signal Hill','Old Crossing'];
+  for (var i=0;i<6;i++){
+    var brg = (i/6)*2*Math.PI + Math.random()*0.6;
+    var d   = 350 + Math.random()*900;
+    var lat = pos.lat + (d*Math.cos(brg))/111320;
+    var lng = pos.lng + (d*Math.sin(brg))/(111320*Math.cos(pos.lat*Math.PI/180));
+    pois.push({ id:uid(), name:names[i], lat:lat, lng:lng, found:false });
+  }
+  save(); paintList(); paintStats();
+  toast('Six points scattered within a kilometre.');
+}
 
-      // Download and stitch adjacent 3x3 layout tile segments natively
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const tX = centerTileX + dx;
-          const tY = centerTileY + dy;
-          const tileKey = `${zoom}_${tX}_${tY}`;
+/* ═══════════════════════════════════════════════════════════════
+   UI
+   ═══════════════════════════════════════════════════════════════ */
+var $ = function(id){ return document.getElementById(id); };
 
-          const startX = centerX - pX + (dx * 256);
-          const startY = centerY - pY + (dy * 256);
+function toast(msg){
+  var t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+}
+function announce(name){
+  var b = $('banner'); $('banner-name').textContent = name;
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+}
+function buzz(){ if (navigator.vibrate) navigator.vibrate([18,60,28]); }
 
-          if (mapTileImages[tileKey] && mapTileImages[tileKey].complete) {
-            tCtx.drawImage(mapTileImages[tileKey], startX, startY);
-          } else if (!mapTileImages[tileKey]) {
-            // Fetch unblockable, keyless high-contrast cartography tile images
-            const img = new Image();
-            img.src = `https://openstreetmap.fr{zoom}/${tX}/${tY}.png`;
-            img.onload = () => { render(); }; // Refresh frame when the layer downloads
-            mapTileImages[tileKey] = img;
-          }
-        }
-      }
+function paintStats(){
+  var m2 = areaCells.size * CELL_M * CELL_M;
+  var mi2 = m2 / 2589988.11;
+  $('s-area').innerHTML = (mi2 < 0.01 ? mi2.toFixed(3) : mi2.toFixed(2)) + ' <small>mi²</small>';
+  var found = pois.filter(function(p){ return p.found; }).length;
+  $('s-poi').textContent = found + ' / ' + pois.length;
+  $('s-acc').innerHTML = pos ? ('±' + Math.round(pos.acc) + ' <small>m</small>') : '—';
+}
 
-      // 2. Generate and Compute the Volumetric Shroud Mask
-      const fogCanvas = document.createElement('canvas');
-      fogCanvas.width = canvas.width;
-      fogCanvas.height = canvas.height;
-      const fCtx = fogCanvas.getContext('2d');
+function paintList(){
+  var el = $('poi-list');
+  if (!pois.length){
+    el.innerHTML = '<div class="empty"><b>No points yet</b>Tap the map to place one, or scatter a few nearby to see how discovery works.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  pois.slice().sort(function(a,b){
+    if (!pos) return 0;
+    return L.latLng(a.lat,a.lng).distanceTo(L.latLng(pos.lat,pos.lng)) -
+           L.latLng(b.lat,b.lng).distanceTo(L.latLng(pos.lat,pos.lng));
+  }).forEach(function(p){
+    var d = pos ? L.latLng(p.lat,p.lng).distanceTo(L.latLng(pos.lat,pos.lng)) : null;
+    var sub = p.found ? 'Charted · clears ' + poiRadius(p) + ' m'
+                      : (d === null ? 'Undiscovered'
+                         : 'Undiscovered · ' + (d>1609 ? (d/1609.344).toFixed(2)+' mi' : Math.round(d)+' m') + ' away');
+    var row = document.createElement('div');
+    row.className = 'poi-row' + (p.found ? ' found' : '');
+    row.innerHTML = '<span class="dot"></span><div class="meta"><div class="n"></div><div class="s"></div></div>';
+    row.querySelector('.n').textContent = p.name;
+    row.querySelector('.s').textContent = sub;
+    var del = document.createElement('button'); del.textContent = 'Remove';
+    del.onclick = function(){
+      pois = pois.filter(function(x){ return x.id !== p.id; });
+      if (poiLayer[p.id]){ map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
+      save(); paintList(); paintStats();
+    };
+    row.appendChild(del);
+    el.appendChild(row);
+  });
+}
 
-      fCtx.fillStyle = "#12141a"; // Shroud thickness fill tint
-      fCtx.fillRect(0, 0, canvas.width, canvas.height);
+function openSheet(open){
+  $('sheet').classList.toggle('show', open);
+  $('scrim').classList.toggle('show', open);
+  if (open) paintList();
+}
 
-      // Cut path openings out of the fog screen using displacement tracking coordinates
-      fCtx.globalCompositeOperation = 'destination-out';
-      
-      const scaleLngFactor = 111320 / 1.35; // Map resolution modifiers
-      const scaleLatFactor = 111000 / 1.35;
+function paintSettings(){
+  $('f-rev').value    = cfg.revealRadiusM;    $('l-rev').textContent    = cfg.revealRadiusM + ' m';
+  $('f-poirev').value = cfg.poiRevealRadiusM; $('l-poirev').textContent = cfg.poiRevealRadiusM + ' m';
+  $('f-trig').value   = cfg.poiTriggerRadiusM;$('l-trig').textContent   = cfg.poiTriggerRadiusM + ' m';
+  $('f-view').value   = cfg.viewRadiusMiles;  $('l-view').textContent   = cfg.viewRadiusMiles + ' mi';
+  $('f-shift').value  = cfg.shiftThreshold;   $('l-shift').textContent  = Math.round(cfg.shiftThreshold*100) + '%';
+  $('f-style').value  = cfg.style;
+  $('f-sim').value    = cfg.sim ? 1 : 0;      $('l-sim').textContent    = cfg.sim ? 'On' : 'Off';
+  $('pad').classList.toggle('show', !!cfg.sim);
+}
 
-      history.forEach(pt => {
-        const cosLat = Math.cos(currentPos.lat * Math.PI / 180);
-        const scrX = centerX + (pt.lng - currentPos.lng) * scaleLngFactor * cosLat;
-        const scrY = centerY - (pt.lat - currentPos.lat) * scaleLatFactor;
-        
-        const rad = 95; // Exploration brush aperture size width
-        const grad = fCtx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        
-        fCtx.fillStyle = grad;
-        fCtx.beginPath(); fCtx.arc(scrX, scrY, rad, 0, Math.PI * 2); fCtx.fill();
-      });
+/* ═══════════════════════════════════════════════════════════════
+   GEOLOCATION + SIMULATION
+   ═══════════════════════════════════════════════════════════════ */
+async function keepAwake(){
+  try {
+    if ('wakeLock' in navigator && !wakeLock)
+      wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e){}
+}
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'visible'){ wakeLock = null; keepAwake(); scheduleDraw(); }
+});
 
-      // 3. Flatten and Compositing layers smoothly down to main view canvas screen
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(terrainCanvas, 0, 0); // Ground layer
-      ctx.drawImage(fogCanvas, 0, 0);    // Fog layer overlays ground smoothly
+function startGps(){
+  keepAwake();
+  if (!('geolocation' in navigator)){
+    $('g-err').textContent = 'This browser has no location service. Use the GPS-free test instead.';
+    return;
+  }
+  $('g-err').textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition(function(p){
+    $('g-err').textContent = '';
+    onPosition(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    watchId = navigator.geolocation.watchPosition(function(q){
+      if (q.coords.accuracy <= cfg.maxAccuracyM || !pos)
+        onPosition(q.coords.latitude, q.coords.longitude, q.coords.accuracy);
+      else if (pos) { pos.acc = q.coords.accuracy; paintStats(); }
+    }, function(){}, { enableHighAccuracy:true, maximumAge:2000, timeout:20000 });
+  }, function(err){
+    $('g-err').textContent = err.code === 1
+      ? 'Location is blocked. Allow it in Settings → Safari → Location, or run the GPS-free test.'
+      : 'No fix yet — open sky helps. You can also run the GPS-free test.';
+  }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+}
 
-      // 4. Render Center Neon Node indicator (Locked to viewport coordinates center point view)
-      ctx.fillStyle = "#00ffcc";
-      ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
-      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0; 
-    }
+function startSim(lat,lng){
+  cfg.sim = true; save(); paintSettings(); keepAwake();
+  if (watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+  simPos = {
+    lat: lat != null ? lat : (cfg.simLat != null ? cfg.simLat : 34.8526),
+    lng: lng != null ? lng : (cfg.simLng != null ? cfg.simLng : -82.3940)
+  };
+  onPosition(simPos.lat, simPos.lng, 5);
+  if (simTimer) clearInterval(simTimer);
+  simTimer = setInterval(function(){
+    if (!simVec.x && !simVec.y) return;
+    var mps = (simSprint ? 12 : 2.4) / 8;    // ~8 ticks per second
+    var dLat = (simVec.y * mps) / 111320;
+    var dLng = (simVec.x * mps) / (111320 * Math.cos(simPos.lat*Math.PI/180));
+    simPos.lat += dLat; simPos.lng += dLng;
+    cfg.simLat = simPos.lat; cfg.simLng = simPos.lng;
+    onPosition(simPos.lat, simPos.lng, 5);
+  }, 125);
+}
+function stopSim(){
+  cfg.sim = false; save(); paintSettings();
+  if (simTimer){ clearInterval(simTimer); simTimer = null; }
+  simVec = {x:0,y:0};
+  startGps();
+}
 
-    function updateGPS(position) {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      
-      currentPos = { lat: lat, lng: lng };
+/* ═══════════════════════════════════════════════════════════════
+   WIRING
+   ═══════════════════════════════════════════════════════════════ */
+function wire(){
+  $('g-start').onclick = function(){ startGps(); };
+  $('g-sim').onclick   = function(){
+    var g = $('gate'); g.classList.add('gone');
+    setTimeout(function(){ g.style.display='none'; }, 600);
+    startSim();
+  };
 
-      // Initialize anchor map coordinate reference framework on startup
-      if (!mapAnchorPos) {
-        mapAnchorPos = { lat: lat, lng: lng };
-      } else {
-        // Shift regional tile matrix array if stepping outside 1-mile margins
-        const latDiff = Math.abs(lat - mapAnchorPos.lat);
-        const lngDiff = Math.abs(lng - mapAnchorPos.lng);
+  $('b-center').onclick = recenter;
+  $('b-sheet').onclick  = function(){ openSheet(true); };
+  $('b-drop').onclick   = function(){ setPlaceMode(!placeMode); };
+  $('scrim').onclick = function(){ openSheet(false); };
 
-        if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
-          mapAnchorPos = { lat: lat, lng: lng };
-        }
-      }
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(t){
+    t.onclick = function(){
+      document.querySelectorAll('.tab').forEach(function(x){ x.classList.remove('on'); });
+      document.querySelectorAll('.pane').forEach(function(x){ x.classList.remove('on'); });
+      t.classList.add('on'); $(t.dataset.pane).classList.add('on');
+      if (t.dataset.pane === 'p-set') paintSettings();
+    };
+  });
 
-      // Log movement parameters cleanly to memory arrays
-      history.push({ lat: lat, lng: lng });
-      render();
+  $('a-add-here').onclick = function(){
+    if (!pos){ toast('Waiting for a position fix.'); return; }
+    addPoi(pos.lat, pos.lng);
+  };
+  $('a-add-coord').onclick = function(){
+    var s = ask('Enter latitude, longitude', pos ? pos.lat.toFixed(5)+', '+pos.lng.toFixed(5) : '');
+    if (!s) return;
+    var parts = s.split(/[, ]+/).map(parseFloat);
+    if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])){ toast('Could not read those coordinates.'); return; }
+    addPoi(parts[0], parts[1]);
+  };
+  $('a-seed').onclick = seedPois;
 
-      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>UNFOGGING ENVIRONMENT...`;
-    }
+  function bindRange(id, key, fmt, after){
+    $(id).oninput = function(){
+      cfg[key] = parseFloat(this.value);
+      $('l-'+id.split('-')[1]).textContent = fmt(cfg[key]);
+    };
+    $(id).onchange = function(){ save(); if (after) after(); };
+  }
+  bindRange('f-rev','revealRadiusM',      function(v){ return v+' m'; });
+  bindRange('f-poirev','poiRevealRadiusM',function(v){ return v+' m'; });
+  bindRange('f-trig','poiTriggerRadiusM', function(v){ return v+' m'; });
+  bindRange('f-view','viewRadiusMiles',   function(v){ return v+' mi'; }, recenter);
+  bindRange('f-shift','shiftThreshold',   function(v){ return Math.round(v*100)+'%'; });
 
-    if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS DATA FAULT: ${err.message}`;
-      }, { enableHighAccuracy: true });
-    }
+  $('f-sim').onchange = function(){
+    if (this.value === '1') startSim(pos ? pos.lat : undefined, pos ? pos.lng : undefined);
+    else stopSim();
+  };
+  $('f-style').onchange = function(){
+    cfg.style = this.value; save(); setTiles(cfg.style);
+    if (pos){ viewZoom = zoomForWindow(pos.lat); map.setZoom(viewZoom); }
+  };
 
-    resize();
-  </script>
+  $('a-export').onclick = function(){
+    var blob = new Blob([localStorage.getItem(STORE) || '{}'], {type:'application/json'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'fogbound-save.json'; a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+  };
+  $('a-import').onclick = function(){
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'application/json';
+    inp.onchange = function(){
+      var f = inp.files[0]; if (!f) return;
+      var fr = new FileReader();
+      fr.onload = function(){
+        try {
+          var d = JSON.parse(fr.result);
+          localStorage.setItem(STORE, JSON.stringify(d));
+          location.reload();
+        } catch(e){ toast('That file is not a Fogbound save.'); }
+      };
+      fr.readAsText(f);
+    };
+    inp.click();
+  };
+  $('a-reset').onclick = function(){
+    if (!confirm('Re-fog the map? Your trail is erased and every point becomes undiscovered.')) return;
+    reveals = []; trailCells = new Set(); areaCells = new Set();
+    pois.forEach(function(p){ p.found = false; });
+    refreshPoiMarkers(); save(); scheduleDraw(); paintStats(); paintList();
+    toast('The map is dark again.');
+  };
+
+  // d-pad
+  var dirs = { n:{x:0,y:1}, s:{x:0,y:-1}, e:{x:1,y:0}, w:{x:-1,y:0}, stop:{x:0,y:0} };
+  Array.prototype.forEach.call(document.querySelectorAll('#pad button'), function(b){
+    b.onclick = function(){ simVec = Object.assign({}, dirs[b.dataset.dir]); };
+  });
+
+  var keymap = { ArrowUp:'n', ArrowDown:'s', ArrowLeft:'w', ArrowRight:'e',
+                 w:'n', s:'s', a:'w', d:'e', W:'n', S:'s', A:'w', D:'e' };
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Shift') simSprint = true;
+    var k = keymap[e.key]; if (!k || !cfg.sim) return;
+    e.preventDefault(); simVec = Object.assign({}, dirs[k]);
+  });
+  window.addEventListener('keyup', function(e){
+    if (e.key === 'Shift') simSprint = false;
+    if (keymap[e.key] && cfg.sim) simVec = {x:0,y:0};
+  });
+
+  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOOT
+   ═══════════════════════════════════════════════════════════════ */
+load();
+buildMap();
+wire();
+refreshPoiMarkers();
+paintStats();
+paintList();
+paintSettings();
+scheduleDraw();
+$('build-note').textContent = 'Fogbound · offline-ready · saves to this device only.';
+
+if (cfg.sim){
+  $('gate').style.display = 'none';
+  startSim();
+}
+
+if ('serviceWorker' in navigator && location.protocol === 'https:'){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
+})();
+</script>
 </body>
 </html>
