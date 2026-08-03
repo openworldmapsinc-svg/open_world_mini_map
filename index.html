@@ -32,20 +32,26 @@
   <div id="status">Waiting for GPS...</div>
 
   <script>
-    // 1. Initialize Map
+    // 1. Initialize Map with valid starting coordinates (Greenville, SC placeholder)
     const map = L.map('map', { zoomControl: false }).setView([34.8526, -82.3940], 16); 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    const playerMarker = L.circleMarker([0, 0], { radius: 8, color: '#00ffcc', fillColor: '#00ffcc', fillOpacity: 1 }).addTo(map);
+    // FIX: Corrected syntax with valid starting coordinates
+    const playerMarker = L.circleMarker([34.8526, -82.3940], { 
+      radius: 8, 
+      color: '#00ffcc', 
+      fillColor: '#00ffcc', 
+      fillOpacity: 1 
+    }).addTo(map);
 
     // 2. Setup Fog Canvas
     const canvas = document.getElementById('fogCanvas');
     const ctx = canvas.getContext('2d');
-    let history = []; // Stores revealed points: {lat, lng, radius}
+    let history = []; 
 
     // Configured Points of Interest (POIs)
     const poiList = [
-      { name: "Legacy Park", lat: 34.8306240794758, lng:-82.33148527766677, radius: 300, visited: false }
+      { name: "Big City Center", lat: 34.8526, lng: -82.3940, radius: 300, visited: false }
     ];
 
     function resizeCanvas() {
@@ -58,33 +64,35 @@
     function drawFog() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Draw base fog texture (Smoky/cloudy charcoal color)
+      // Base fog texture
       ctx.fillStyle = "#22252a"; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Set blending mode to cut holes out of the fog
+      // Blending mode to clear fog holes
       ctx.globalCompositeOperation = 'destination-out';
 
       history.forEach(point => {
-        const screenPos = map.latLngToContainerPoint([point.lat, point.lng]);
-        
-        // Soft gradient brush to make it look organic, not hard-edged
-        const gradient = ctx.createRadialGradient(screenPos.x, screenPos.y, point.radius * 0.2, screenPos.x, screenPos.y, point.radius);
-        gradient.addColorStop(0, 'rgba(0,0,0,1)');
-        gradient.addColorStop(0.6, 'rgba(0,0,0,0.8)');
-        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+        try {
+          const screenPos = map.latLngToContainerPoint([point.lat, point.lng]);
+          
+          const gradient = ctx.createRadialGradient(
+            screenPos.x, screenPos.y, point.radius * 0.1, 
+            screenPos.x, screenPos.y, point.radius
+          );
+          gradient.addColorStop(0, 'rgba(0,0,0,1)');
+          gradient.addColorStop(0.6, 'rgba(0,0,0,0.8)');
+          gradient.addColorStop(1, 'rgba(0,0,0,0)');
 
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(screenPos.x, screenPos.y, point.radius, 0, Math.PI * 2);
-        ctx.fill();
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(screenPos.x, screenPos.y, point.radius, 0, Math.PI * 2);
+          ctx.fill();
+        } catch(e) { /* Map projection not ready yet */ }
       });
 
-      // Reset blending back to normal
       ctx.globalCompositeOperation = 'source-over';
     }
 
-    // Redraw fog elements seamlessly when user drags or zooms map
     map.on('move', drawFog);
     map.on('zoomend', drawFog);
 
@@ -95,18 +103,17 @@
       const playerLatLng = new L.LatLng(lat, lng);
 
       playerMarker.setLatLng(playerLatLng);
-      map.panTo(playerLatLng);
+      map.setView(playerLatLng, map.getZoom()); // Smoothly center map
 
-      // Add regular path reveal (small radius)
-      history.push({ lat: lat, lng: lng, radius: 60 });
+      // Add regular path reveal radius
+      history.push({ lat: lat, lng: lng, radius: 80 });
 
-      // Check if player entered a POI zone
+      // Check POIs
       poiList.forEach(poi => {
         if (!poi.visited) {
           const distance = map.distance(playerLatLng, [poi.lat, poi.lng]);
-          if (distance < 150) { // inside 150 meters
+          if (distance < 150) { 
             poi.visited = true;
-            // Unfog a massive area (large radius)
             history.push({ lat: poi.lat, lng: poi.lng, radius: 400 });
             document.getElementById('status').innerText = `Discovered: ${poi.name}!`;
             setTimeout(() => { document.getElementById('status').innerText = "Exploring..."; }, 4000);
@@ -115,23 +122,22 @@
       });
 
       drawFog();
-      if(document.getElementById('status').innerText.indexOf("Discovered") === -1) {
+      if(!document.getElementById('status').innerText.includes("Discovered")) {
         document.getElementById('status').innerText = `Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
       }
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateLocation, (err) => {
-        document.getElementById('status').innerText = "GPS Error. Turn on location.";
-      }, { enableHighAccuracy: true, maximumAge: 0 });
+        document.getElementById('status').innerText = `GPS Error: ${err.message}. Check iOS Settings.`;
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     } else {
       document.getElementById('status').innerText = "GPS not supported.";
     }
 
-    resizeCanvas();
+    // Initialize layout sizing
+    setTimeout(resizeCanvas, 500);
   </script>
   <script>
     if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
   </script>
-</body>
-</html>
