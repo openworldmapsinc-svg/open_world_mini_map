@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Real World Tracker</title>
+  <title>RPG Chunk Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
@@ -19,16 +19,23 @@
 <body>
 
   <canvas id="gameCanvas"></canvas>
-  <div id="status"><div id="msg">GPS ACTIVE. FETCHING REAL EARTH DATA...</div></div>
+  <div id="status"><div id="msg">GPS ACTIVE. ACQUIRING REGIONAL BLUEPRINT...</div></div>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    let history = []; 
-    let currentPos = null;
+    let history = []; // Tracks structural coordinate data {lat, lng, rad}
+    let currentPos = null; // Active player GPS
+    let mapAnchorPos = null; // Current center lock coordinate of the background image
     let mapImage = null;
     let isImageLoading = false;
+
+    // Approximate lat/lng delta representing a 1-mile radius safety boundary box
+    const boundaryDelta = 0.0145; 
+    // Scaling system matching Geoapify zoom level 14 pixel distribution (approx 1 mile viewing area on device viewports)
+    const metersPerPixel = 1.35;
+    const pixelsPerDegreeLng = 111320 / metersPerPixel;
 
     function resize() {
       canvas.width = window.innerWidth;
@@ -37,50 +44,86 @@
     }
     window.addEventListener('resize', resize);
 
+    function fetchMapChunk(lat, lng) {
+      if (isImageLoading) return;
+      isImageLoading = true;
+      document.getElementById('msg').innerHTML = "SHIFTING SECTOR DATA...<br>DOWNLOADING NEW CHUNK";
+
+      const img = new Image();
+      // Uses map style "dark-matter" for an authentic gaming look
+      img.src = `https://geoapify.com{lng},${lat}&zoom=14&apiKey=free`;
+      
+      img.onload = () => {
+        mapAnchorPos = { lat: lat, lng: lng };
+        mapImage = img;
+        isImageLoading = false;
+        render();
+      };
+      img.onerror = () => {
+        isImageLoading = false;
+        document.getElementById('msg').innerHTML = "DATA FAILURE.<br>Running Backup Sensors.";
+      };
+    }
+
     function render() {
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      // 1. Draw solid backdrop
+      // 1. Draw Void space backdrop
       ctx.fillStyle = "#0c0f12";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 2. Render the actual neighborhood image if it exists
-      if (mapImage && mapImage.complete) {
-        // Center the downloaded local real-world image directly behind the green dot
-        ctx.drawImage(mapImage, centerX - (mapImage.width / 2), centerY - (mapImage.height / 2));
+      // 2. Render Static Map Segment if calibrated
+      if (mapImage && mapImage.complete && mapAnchorPos && currentPos) {
+        // Compute pixel offset between current player location and active chunk background anchor center point
+        const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
+        const pixelsPerDegreeLat = 111000 / metersPerPixel;
+
+        const deltaLng = currentPos.lng - mapAnchorPos.lng;
+        const deltaLat = currentPos.lat - mapAnchorPos.lat;
+
+        // Shift background asset image position relative to your step displacements
+        const mapX = centerX - (mapImage.width / 2) - (deltaLng * pixelsPerDegreeLng * cosLat);
+        const mapY = centerY - (mapImage.height / 2) + (deltaLat * pixelsPerDegreeLat);
+
+        ctx.drawImage(mapImage, mapX, mapY);
       }
 
-      // 3. Create and layer the Volumetric Fog Mask
+      // 3. Compute and Apply the Shroud of War Layer Mask
       const fogCanvas = document.createElement('canvas');
       fogCanvas.width = canvas.width;
       fogCanvas.height = canvas.height;
       const fCtx = fogCanvas.getContext('2d');
 
-      fCtx.fillStyle = "#16191f"; // Color of the fog
+      fCtx.fillStyle = "#111318"; // Opaque cloud density fill
       fCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Erase holes in the fog layer based on your location history
       fCtx.globalCompositeOperation = 'destination-out';
-      
-      // Always un-fog your immediate center zone first
-      if (currentPos) {
-        history.push({ x: centerX, y: centerY, rad: 90 });
+
+      if (currentPos && mapAnchorPos) {
+        const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
+        const pixelsPerDegreeLat = 111000 / metersPerPixel;
+
+        history.forEach(pt => {
+          // Relocate visibility holes on screen relative to where your player is standing at center view
+          const dLng = pt.lng - currentPos.lng;
+          const dLat = pt.lat - currentPos.lat;
+
+          const scrX = centerX + (dLng * pixelsPerDegreeLng * cosLat);
+          const scrY = centerY - (dLat * pixelsPerDegreeLat);
+          
+          const grad = fCtx.createRadialGradient(scrX, scrY, pt.rad * 0.1, scrX, scrY, pt.rad);
+          grad.addColorStop(0, 'rgba(0,0,0,1)');
+          grad.addColorStop(1, 'rgba(0,0,0,0)');
+          
+          fCtx.fillStyle = grad;
+          fCtx.beginPath(); fCtx.arc(scrX, scrY, pt.rad, 0, Math.PI * 2); fCtx.fill();
+        });
       }
 
-      history.forEach(pt => {
-        const grad = fCtx.createRadialGradient(pt.x, pt.y, pt.rad * 0.1, pt.x, pt.y, pt.rad);
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        
-        fCtx.fillStyle = grad;
-        fCtx.beginPath(); fCtx.arc(pt.x, pt.y, pt.rad, 0, Math.PI * 2); fCtx.fill();
-      });
-
-      // Overlay the computed fog down onto the street map
       ctx.drawImage(fogCanvas, 0, 0);
 
-      // 4. Render Neon Tracker Dot
+      // 4. Render Neon Tracker Dot (Locked to precise display center layout view)
       ctx.fillStyle = "#00ffcc";
       ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
       ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
@@ -93,31 +136,31 @@
       
       currentPos = { lat: lat, lng: lng };
 
-      // Fetch a real image map of your exact location using a lightweight provider
-      if (!mapImage && !isImageLoading) {
-        isImageLoading = true;
-        
-        const img = new Image();
-        // Generates a clean 600x600 real road map image matching your exact GPS numbers
-        img.src = `https://geoapify.com{lng},${lat}&zoom=15&apiKey=free`;
-        
-        img.onload = () => {
-          mapImage = img;
-          render();
-        };
-        img.onerror = () => {
-          // If the network completely rejects the server, draw a fallback wireframe radar grid
-          document.getElementById('msg').innerHTML = "DATA RESTRICTED.<br>Running Radar Wireframes.";
-        };
+      // Initialize anchor map baseline on cold boot setup sequence
+      if (!mapAnchorPos) {
+        fetchMapChunk(lat, lng);
+      } else {
+        // Calculate margin limits. If player distances out past 1 mile boundary, center re-shifts chunk layout instantly
+        const latDiff = Math.abs(lat - mapAnchorPos.lat);
+        const lngDiff = Math.abs(lng - mapAnchorPos.lng);
+
+        if (latDiff > boundaryDelta || lngDiff > boundaryDelta) {
+          fetchMapChunk(lat, lng);
+        }
       }
 
-      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
+      // Record localized historical exploration node track data (Brush Reveal Radius: 85 pixels)
+      history.push({ lat: lat, lng: lng, rad: 85 });
+
+      if (!isImageLoading) {
+        document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>GRID SECTOR LOCK STABLE`;
+      }
       render();
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS SIGNAL ERROR: ${err.message}`;
+        document.getElementById('msg').innerHTML = `GPS SIGNAL FAULT: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
 
