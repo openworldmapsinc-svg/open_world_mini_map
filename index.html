@@ -6,16 +6,15 @@
   <title>RPG Fog Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
+  
+  <!-- Using Mapbox GL JS for beautiful, unblockable RPG style vectors -->
+  <link href="https://mapbox.com" rel="stylesheet">
+  <script src="https://mapbox.com"></script>
+
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d10; font-family: monospace; }
-    
-    /* FIX: The map tile container sits safely in the background layer */
-    #mapContainer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
-    .tile { position: absolute; width: 256px; height: 256px; }
-
-    /* The Fog Canvas overlays the map smoothly */
+    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
     #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
-    
     #status {
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
       z-index: 3; background: rgba(15, 23, 42, 0.95); color: #00ffcc; padding: 15px;
@@ -25,114 +24,112 @@
 </head>
 <body>
 
-  <div id="mapContainer"></div>
+  <div id="map"></div>
   <canvas id="fogCanvas"></canvas>
   <div id="status"><div id="msg">GPS ACTIVE. LOCATING...</div></div>
 
   <script>
+    // Global Error Logger
+    window.onerror = function(msg, url, line) {
+      document.getElementById('msg').innerHTML = `<span style="color:red">Error: ${msg}</span>`;
+      return false;
+    };
+
+    // PASTE YOUR FREE MAPBOX ACCESS TOKEN HERE
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZGVib2prbyIsImEiOiJjbXNkano5Z2kwN2Y5MnpvbzRkd2xoaHV1In0.KJnaVuZOu2uJHhqypfyPAA';
+
     const canvas = document.getElementById('fogCanvas');
     const ctx = canvas.getContext('2d');
-    const mapContainer = document.getElementById('mapContainer');
     
+    let map;
     let history = []; 
     let currentPos = null;
-    const zoom = 16; 
+    let playerMarkerElement;
+    let playerMarker;
 
-    function resize() {
+    function resizeCanvas() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      render();
+      drawFog();
     }
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', resizeCanvas);
 
-    function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
-    function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
-    
-    function lon2pixel(lon, zoom, tileX) { return ((lon + 180) / 360 * Math.pow(2, zoom) - tileX) * 256; }
-    function lat2pixel(lat, zoom, tileY) {
-      const latRad = lat * Math.PI / 180;
-      return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * Math.pow(2, zoom) - tileY) * 256;
+    function initMap(lat, lng) {
+      // Create a gorgeous Sci-Fi Dark Vector style map base
+      map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v11', 
+        center: [lng, lat],
+        zoom: 15,
+        interactive: false // Lock controls so user position rules movement
+      });
+
+      // Design custom Neon neon node indicator element
+      playerMarkerElement = document.createElement('div');
+      playerMarkerElement.style.width = '16px';
+      playerMarkerElement.style.height = '16px';
+      playerMarkerElement.style.backgroundColor = '#00ffcc';
+      playerMarkerElement.style.borderRadius = '50%';
+      playerMarkerElement.style.boxShadow = '0 0 15px #00ffcc';
+
+      playerMarker = new mapboxgl.Marker(playerMarkerElement)
+        .setLngLat([lng, lat])
+        .addTo(map);
+
+      map.on('move', drawFog);
+      resizeCanvas();
     }
 
-    function render() {
-      if (!currentPos) return;
+    function drawFog() {
+      if (!map || !ctx || !currentPos) return;
 
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-
-      const centerTileX = lon2tile(currentPos.lng, zoom);
-      const centerTileY = lat2tile(currentPos.lat, zoom);
-      
-      const pX = lon2pixel(currentPos.lng, zoom, centerTileX);
-      const pY = lat2pixel(currentPos.lat, zoom, centerTileY);
-
-      // Clear out the previous map elements smoothly
-      mapContainer.innerHTML = '';
-
-      // Draw the 3x3 grid using standard HTML Images to bypass security blocks
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const tX = centerTileX + dx;
-          const tY = centerTileY + dy;
-          
-          const startX = centerX - pX + (dx * 256);
-          const startY = centerY - pY + (dy * 256);
-
-          const img = document.createElement('img');
-          img.className = 'tile';
-          img.style.left = `${startX}px`;
-          img.style.top = `${startY}px`;
-          img.src = `https://openstreetmap.org{zoom}/${tX}/${tY}.png`;
-          mapContainer.appendChild(img);
-        }
-      }
-
-      // 2. Render Overlaid Fog Layer on Canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#1e222b";
+      ctx.fillStyle = "#16191f"; // Smooth RPG fog layer
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Slice tracking trails out of the canvas fog
       ctx.globalCompositeOperation = 'destination-out';
+
       history.forEach(pt => {
-        const scaleFactor = 1200000; 
-        const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor * Math.cos(currentPos.lat * Math.PI / 180);
-        const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
+        // Map native geographical coordinates directly to current screen pixel location
+        const screenPos = map.project([pt.lng, pt.lat]);
         
-        const grad = ctx.createRadialGradient(scrX, scrY, pt.rad * 0.1, scrX, scrY, pt.rad);
+        // Dynamic fog circle size modifier
+        const rad = 90; 
+        
+        const grad = ctx.createRadialGradient(screenPos.x, screenPos.y, rad * 0.1, screenPos.x, screenPos.y, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         
         ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.arc(scrX, scrY, pt.rad, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(screenPos.x, screenPos.y, rad, 0, Math.PI * 2); ctx.fill();
       });
 
-      // 3. Render Neon Player Marker Node
       ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = "#00ffcc";
-      ctx.shadowBlur = 12; ctx.shadowColor = "#00ffcc";
-      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0; 
     }
 
     function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-
       currentPos = { lat: lat, lng: lng };
-      history.push({ lat: lat, lng: lng, rad: 95 });
 
-      document.getElementById('msg').innerHTML = `GPS DATA SIGNAL SYNCED<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
-      render();
+      history.push({ lat: lat, lng: lng });
+
+      if (!map) {
+        initMap(lat, lng);
+      } else {
+        playerMarker.setLngLat([lng, lat]);
+        map.setCenter([lng, lat]);
+        drawFog();
+      }
+
+      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS FAULT: ${err.message}`;
+        document.getElementById('msg').innerHTML = `GPS DATA FAULT: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
-
-    resize();
   </script>
 </body>
 </html>
