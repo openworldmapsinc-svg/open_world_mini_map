@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Radar Fog Map</title>
+  <title>RPG Fog Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
@@ -13,34 +13,22 @@
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
       z-index: 2; background: rgba(15, 23, 42, 0.95); color: #00ffcc; padding: 15px;
       border-radius: 10px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
-      box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
-    }
-    button {
-      background: #00ffcc; color: #0b0d10; border: none; padding: 10px; margin-top: 10px;
-      border-radius: 5px; font-weight: bold; width: 100%; font-family: monospace; font-size: 14px;
     }
   </style>
 </head>
 <body>
 
   <canvas id="gameCanvas"></canvas>
-  
-  <div id="status">
-    <div id="msg">SYSTEMS OFFLINE</div>
-    <button id="startBtn" onclick="initGPS()">INITIALIZE SENSORS</button>
-  </div>
+  <div id="status"><div id="msg">GPS ACTIVE. LOCATING...</div></div>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    let history = []; // Tracked points {x, y}
-    let playerPos = { x: 0, y: 0 };
-    let startPos = null;
-    let scale = 200000; // Map zoom scale
-
-    // Custom POI: Adjust these coordinates to your city center!
-    const poi = { name: "ALPHA BASE", lat: 34.8526, lng: -82.3940, radius: 120, visited: false };
+    let history = []; 
+    let currentPos = null;
+    let cachedTiles = {}; 
+    const zoom = 16; // Standard city street map zoom level
 
     function resize() {
       canvas.width = window.innerWidth;
@@ -49,118 +37,111 @@
     }
     window.addEventListener('resize', resize);
 
+    // Mathematical conversions to map standard GPS to OpenStreetMap pixel grid tiles
+    function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
+    function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
+    
+    function lon2pixel(lon, zoom, tileX) {
+      const n = Math.pow(2, zoom);
+      const x = (lon + 180) / 360 * n;
+      return (x - tileX) * 256;
+    }
+    function lat2pixel(lat, zoom, tileY) {
+      const n = Math.pow(2, zoom);
+      const latRad = lat * Math.PI / 180;
+      const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+      return (y - tileY) * 256;
+    }
+
     function render() {
-      // 1. Clear Screen with dark grid background
-      ctx.fillStyle = "#0b0d10";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!currentPos) return;
 
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      // Draw RPG Tech Radar Grid under the fog
-      ctx.strokeStyle = "rgba(0, 255, 204, 0.05)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < canvas.width; i += 40) {
-        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
-      }
-      for (let j = 0; j < canvas.height; j += 40) {
-        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); ctx.stroke();
+      // 1. Calculate and fetch target center tile structures
+      const centerTileX = lon2tile(currentPos.lng, zoom);
+      const centerTileY = lat2tile(currentPos.lat, zoom);
+      
+      const pX = lon2pixel(currentPos.lng, zoom, centerTileX);
+      const pY = lat2pixel(currentPos.lat, zoom, centerTileY);
+
+      // Draw active 3x3 surrounding map grid block around player
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const tX = centerTileX + dx;
+          const tY = centerTileY + dy;
+          const tileKey = `${zoom}_${tX}_${tY}`;
+
+          const startX = centerX - pX + (dx * 256);
+          const startY = centerY - pY + (dy * 256);
+
+          if (cachedTiles[tileKey] && cachedTiles[tileKey].complete) {
+            ctx.drawImage(cachedTiles[tileKey], startX, startY);
+          } else if (!cachedTiles[tileKey]) {
+            // Fetch standard map background chunk directly through native image loader
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = `https://openstreetmap.org{zoom}/${tX}/${tY}.png`;
+            img.onload = () => { render(); };
+            cachedTiles[tileKey] = img;
+          }
+        }
       }
 
-      // Draw POI if initialized
-      if (startPos) {
-        const poiX = centerX + (poi.lng - startPos.lng) * scale;
-        const poiY = centerY - (poi.lat - startPos.lat) * scale;
-        
-        ctx.fillStyle = poi.visited ? "rgba(0, 255, 100, 0.15)" : "rgba(255, 50, 50, 0.1)";
-        ctx.beginPath(); ctx.arc(poiX, poiY, poi.radius, 0, Math.PI*2); ctx.fill();
-        
-        ctx.strokeStyle = poi.visited ? "#00ff64" : "#ff3232";
-        ctx.setLineDash([4, 4]);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-
-      // 2. Render Fog Layer (Create an offscreen mask style blend)
+      // 2. Render Overlaid Fog Layer
       const fogCanvas = document.createElement('canvas');
       fogCanvas.width = canvas.width;
       fogCanvas.height = canvas.height;
       const fCtx = fogCanvas.getContext('2d');
 
-      // Fill offscreen canvas with thick volumetric fog color
+      // Volumetric charcoal fog mask color
       fCtx.fillStyle = "#1e222b";
       fCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Cut path trails out of the fog canvas
+      // Slice holes out of the fog relative to historical travel coordinates
       fCtx.globalCompositeOperation = 'destination-out';
       history.forEach(pt => {
-        const scrX = centerX + (pt.lng - startPos.lng) * scale;
-        const scrY = centerY - (pt.lat - startPos.lat) * scale;
+        // Calculate offset position on screen relative to where you are standing now
+        const scaleFactor = 1200000; // Pixel coordinate modifier
+        const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor * Math.cos(currentPos.lat * Math.PI / 180);
+        const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
         
         const grad = fCtx.createRadialGradient(scrX, scrY, pt.rad * 0.1, scrX, scrY, pt.rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
         
         fCtx.fillStyle = grad;
-        fCtx.beginPath(); fCtx.arc(scrX, scrY, pt.rad, 0, Math.PI*2); fCtx.fill();
+        fCtx.beginPath(); fCtx.arc(scrX, scrY, pt.rad, 0, Math.PI * 2); fCtx.fill();
       });
 
-      // Draw the computed fog over our active tech grid
+      // Overlay the computed fog state on screen
       ctx.drawImage(fogCanvas, 0, 0);
 
-      // 3. Draw Player Position Marker
+      // 3. Render Neon Player Marker Node
       ctx.fillStyle = "#00ffcc";
-      ctx.shadowBlur = 10; ctx.shadowColor = "#00ffcc";
-      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI*2); ctx.fill();
-      ctx.shadowBlur = 0; // reset
+      ctx.shadowBlur = 12; ctx.shadowColor = "#00ffcc";
+      ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0; 
     }
 
     function updateGPS(position) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
 
-      if (!startPos) {
-        startPos = { lat: lat, lng: lng };
-      }
-
-      playerPos = { lat: lat, lng: lng };
+      currentPos = { lat: lat, lng: lng };
       
-      // Push movement step trail to history
-      history.push({ lat: lat, lng: lng, rad: 60 });
+      // Permanently save path reveal coordinate point (radius: 95 pixels)
+      history.push({ lat: lat, lng: lng, rad: 95 });
 
-      // Check distance to configured custom POI destination
-      if (startPos) {
-        const dLat = lat - poi.lat;
-        const dLng = lng - poi.lng;
-        const dist = Math.sqrt(dLat*dLat + dLng*dLng) * scale; 
-        if (dist < poi.radius && !poi.visited) {
-          poi.visited = true;
-          history.push({ lat: poi.lat, lng: poi.lng, rad: poi.radius * 2 });
-          document.getElementById('msg').innerHTML = `DISCOVERED: ${poi.name}`;
-        }
-      }
-
-      if(!poi.visited) {
-        document.getElementById('msg').innerHTML = `GPS ONLINE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
-      }
-      
+      document.getElementById('msg').innerHTML = `GPS DATA SIGNAL SYNCED<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
       render();
     }
 
-    function initGPS() {
-      document.getElementById('msg').innerText = "CONNECTING TO SATELLITES...";
-      document.getElementById('startBtn').style.display = 'none';
-
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(updateGPS, (err) => {
-          document.getElementById('msg').innerHTML = `GPS ERROR: ${err.message}<br>(Code ${err.code})`;
-          document.getElementById('startBtn').style.display = 'block';
-          document.getElementById('startBtn').innerText = 'RETRY SENSOR SYNC';
-        }, { enableHighAccuracy: true });
-
-        navigator.geolocation.watchPosition(updateGPS, null, { enableHighAccuracy: true });
-      } else {
-        document.getElementById('msg').innerText = "HARDWARE NOT SUPPORTED";
-      }
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(updateGPS, (err) => {
+        document.getElementById('msg').innerHTML = `GPS FAULT: ${err.message}`;
+      }, { enableHighAccuracy: true });
     }
 
     resize();
