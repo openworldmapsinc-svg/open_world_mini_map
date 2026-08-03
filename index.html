@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Vector Street Tracker</title>
+  <title>RPG Infinite Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
@@ -13,14 +13,13 @@
       position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
       z-index: 2; background: rgba(10, 15, 26, 0.95); color: #00ffcc; padding: 15px;
       border-radius: 8px; border: 1px solid #00ffcc; text-align: center; width: 85%; max-width: 320px;
-      box-shadow: 0 0 15px rgba(0, 255, 204, 0.15); pointer-events: none;
     }
   </style>
 </head>
 <body>
 
   <canvas id="gameCanvas"></canvas>
-  <div id="status"><div id="msg">GPS LINK READY. OVERLAYING STREETS...</div></div>
+  <div id="status"><div id="msg">GPS ACTIVE. SYNCHRONIZING GRID...</div></div>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
@@ -28,37 +27,58 @@
     
     let history = []; 
     let currentPos = null;
-    let streetElements = []; // Stores real neighborhood roads
-    let loadedBBox = null;
-    
-    const scaleFactor = 350000; // Visual map magnification
+    const scaleFactor = 280000; // Map magnification scale
 
-    // Fetch real-world street blueprints over an unblockable text API
-    function loadRealStreets(lat, lng) {
-      // Calculate a bounding box roughly 1.5 miles around you
-      const range = 0.015;
-      const minLat = lat - range;
-      const minLng = lng - range;
-      const maxLat = lat + range;
-      const maxLng = lng + range;
+    // Custom POI: Sets up a beacon zone near your position
+    let poiSet = false;
+    let poi = { name: "SECTOR OUTPOST", lat: 0, lng: 0, rad: 130, visited: false };
 
-      loadedBBox = { minLat, minLng, maxLat, maxLng };
+    // High-performance procedural generator mapping your layout coordinates
+    function drawMapTerrain(cX, cY, lat, lng) {
+      // 1. Draw Sector Grid Lines
+      ctx.strokeStyle = "rgba(0, 255, 204, 0.04)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
 
-      // Query raw street geometry coordinates safely from open storage
-      const query = `[out:json];way["highway"](${minLat},${minLng},${maxLat},${maxLng});out geom;`;
-      const url = `https://overpass-api.de{encodeURIComponent(query)}`;
+      // 2. Generate Real-time Infinite Local Highways
+      ctx.strokeStyle = "rgba(0, 180, 255, 0.22)"; // Major expressways
+      ctx.lineWidth = 4;
+      
+      // Draw intersecting cross-highways that lock accurately to your coordinate system
+      let hX = cX - ((lng * scaleFactor) % 400);
+      ctx.beginPath(); ctx.moveTo(hX, 0); ctx.lineTo(hX, canvas.height); ctx.stroke();
+      
+      let hY = cY + ((lat * scaleFactor) % 400);
+      ctx.beginPath(); ctx.moveTo(0, hY); ctx.lineTo(canvas.width, hY); ctx.stroke();
 
-      fetch(url)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.elements) {
-            streetElements = data.elements;
-            render();
-          }
-        })
-        .catch(err => {
-          document.getElementById('msg').innerHTML = "Map Stream Throttled. Retrying...";
-        });
+      // 3. Generate Minor Residential Streets
+      ctx.strokeStyle = "rgba(0, 255, 204, 0.15)"; 
+      ctx.lineWidth = 2;
+      for (let i = -5; i <= 5; i++) {
+        let roadX = cX + (i * 120) - ((lng * scaleFactor) % 120);
+        ctx.beginPath(); ctx.moveTo(roadX, 0); ctx.lineTo(roadX, canvas.height); ctx.stroke();
+        
+        let roadY = cY + (i * 120) + ((lat * scaleFactor) % 120);
+        ctx.beginPath(); ctx.moveTo(0, roadY); ctx.lineTo(canvas.width, roadY); ctx.stroke();
+      }
+
+      // 4. Render Target POI Outpost Beacon if active
+      if (poiSet) {
+        const poiX = cX + (poi.lng - lng) * scaleFactor;
+        const poiY = cY - (poi.lat - lat) * scaleFactor;
+        
+        ctx.fillStyle = poi.visited ? "rgba(0, 255, 100, 0.12)" : "rgba(255, 60, 60, 0.08)";
+        ctx.beginPath(); ctx.arc(poiX, poiY, poi.rad, 0, Math.PI * 2); ctx.fill();
+        
+        ctx.strokeStyle = poi.visited ? "#00ff64" : "#ff3e3e";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
     }
 
     function resize() {
@@ -74,52 +94,26 @@
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 
-      // 1. Clear viewport background
-      ctx.fillStyle = "#080a0f";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // 1. Render Underlying Vector Terrain
+      drawMapTerrain(centerX, centerY, currentPos.lat, currentPos.lng);
 
-      // 2. Render actual neighborhood layout geometry underneath fog
-      ctx.lineWidth = 2.5;
-      streetElements.forEach(element => {
-        if (element.geometry && element.geometry.length > 1) {
-          // Identify highway ranking for custom coloring
-          const type = element.tags ? element.tags.highway : 'road';
-          if (type === 'motorway' || type === 'trunk' || type === 'primary') {
-            ctx.strokeStyle = "rgba(0, 150, 255, 0.4)"; // Main Highways (Blue neon)
-            ctx.lineWidth = 4;
-          } else {
-            ctx.strokeStyle = "rgba(0, 255, 204, 0.22)"; // Neighborhood lines (Cyan neon)
-            ctx.lineWidth = 2;
-          }
-
-          ctx.beginPath();
-          element.geometry.forEach((pt, index) => {
-            const scrX = centerX + (pt.lon - currentPos.lng) * scaleFactor * Math.cos(currentPos.lat * Math.PI / 180);
-            const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
-            
-            if (index === 0) ctx.moveTo(scrX, scrY);
-            else ctx.lineTo(scrX, scrY);
-          });
-          ctx.stroke();
-        }
-      });
-
-      // 3. Render Volumetric Fog Layer Canvas Mask
+      // 2. Compute and Overlay the Volumetric Shroud
       const fogCanvas = document.createElement('canvas');
       fogCanvas.width = canvas.width;
       fogCanvas.height = canvas.height;
       const fCtx = fogCanvas.getContext('2d');
 
-      fCtx.fillStyle = "#13161c";
+      // Heavy charcoal shadow fog profile
+      fCtx.fillStyle = "#11141a";
       fCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Carve out path lines from the fog canvas based on your physical location history
+      // Erase fog patterns around historical exploration pathways
       fCtx.globalCompositeOperation = 'destination-out';
       history.forEach(pt => {
-        const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor * Math.cos(currentPos.lat * Math.PI / 180);
+        const scrX = centerX + (pt.lng - currentPos.lng) * scaleFactor;
         const scrY = centerY - (pt.lat - currentPos.lat) * scaleFactor;
         
-        const rad = 90; // Fog clearing brush width
+        const rad = pt.customRad || 85; // Standard reveal radius or POI blast radius
         const grad = fCtx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -128,10 +122,10 @@
         fCtx.beginPath(); fCtx.arc(scrX, scrY, rad, 0, Math.PI * 2); fCtx.fill();
       });
 
-      // Layer the computed fog directly down over our neighborhood lines
+      // Overlay completed visibility state onto view grid
       ctx.drawImage(fogCanvas, 0, 0);
 
-      // 4. Render Neon Node tracking indicator
+      // 3. Draw Neon Player Node
       ctx.fillStyle = "#00ffcc";
       ctx.shadowBlur = 15; ctx.shadowColor = "#00ffcc";
       ctx.beginPath(); ctx.arc(centerX, centerY, 8, 0, Math.PI * 2); ctx.fill();
@@ -142,22 +136,40 @@
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
       currentPos = { lat: lat, lng: lng };
-      
-      // Plot movement path coordinates
-      history.push({ lat: lat, lng: lng });
 
-      // Trigger map update download if moving beyond active tracking boundaries
-      if (!loadedBBox || lat < loadedBBox.minLat || lat > loadedBBox.maxLat || lng < loadedBBox.minLng || lng > loadedBBox.maxLng) {
-        loadRealStreets(lat, lng);
+      // Initialize a POI outpost slightly ahead of your starting spot on first load
+      if (!poiSet) {
+        poi.lat = lat + 0.0015;
+        poi.lng = lng + 0.0015;
+        poiSet = true;
       }
 
-      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
+      // Record tracking trail path point
+      history.push({ lat: lat, lng: lng });
+
+      // Check distance to configured outpost
+      const dLat = lat - poi.lat;
+      const dLng = lng - poi.lng;
+      const dist = Math.sqrt(dLat * dLat + dLng * dLng) * scaleFactor;
+      
+      if (dist < poi.rad && !poi.visited) {
+        poi.visited = true;
+        // Unfog massive area instantly (Blast radius: 450 pixels)
+        history.push({ lat: poi.lat, lng: poi.lng, customRad: 450 });
+      }
+
+      if (poi.visited) {
+        document.getElementById('msg').innerHTML = `OUTPOST DISCOVERED!<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}`;
+      } else {
+        document.getElementById('msg').innerHTML = `GPS DATA ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>TARGET: 300m North-East`;
+      }
+      
       render();
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS DATA FAULT: ${err.message}`;
+        document.getElementById('msg').innerHTML = `SATELLITE SYNC LOST: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
 
