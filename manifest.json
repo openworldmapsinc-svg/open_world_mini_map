@@ -1,0 +1,8 @@
+{
+  "name": "My iPhone App",
+  "short_name": "MyApp",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000"
+}
