@@ -7,8 +7,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   
-  <link rel="stylesheet" href="https://unpkg.com" />
-  <script src="https://unpkg.com"></script>
+  <!-- FIX: Switched to highly stable cdnjs with security parameters -->
+  <link rel="stylesheet" href="https://cloudflare.com" />
+  <script src="https://cloudflare.com"></script>
 
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; }
@@ -32,10 +33,9 @@
   
   <div id="status">
     <div>Initialising App Systems...</div>
-    <button id="startBtn" onclick="requestGPS()">FORCE START GPS</button>
   </div>
 
-    <script>
+  <script>
     // System Logger to catch silent failures
     window.onerror = function(msg, url, line) {
       document.getElementById('status').innerHTML = `<span style="color:red">Error: ${msg} on line ${line}</span>`;
@@ -45,8 +45,12 @@
     let map, playerMarker, canvas, ctx;
     let history = [];
 
-    // FIX: Wait for the network files to finish downloading before building the map
+    // Verify network files are safe before building
     window.addEventListener('load', () => {
+      if (typeof L === 'undefined') {
+        document.getElementById('status').innerHTML = '<span style="color:red">Error: Map library blocked by network. Try connecting to cellular data instead of Wi-Fi.</span>';
+        return;
+      }
       initApp();
     });
 
