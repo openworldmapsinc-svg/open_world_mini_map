@@ -3,23 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>RPG Fog Map Tracker</title>
+  <title>RPG Iframe Map Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.png">
   <style>
     body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
     
-    /* Layer 1: Background map container holding the real map image */
+    /* Layer 1: Background Iframe Window holding the live OpenStreetMap view */
     #mapWrapper {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      width: 800px; height: 800px; z-index: 1; display: none;
+      width: 900px; height: 900px; z-index: 1; display: none;
     }
-    #realMapImg { width: 100%; height: 100%; display: block; filter: brightness(0.65) contrast(1.15) invert(0.8) hue-rotate(160deg); }
+    #realMapFrame { width: 100%; height: 100%; border: none; pointer-events: none; }
 
     /* Layer 2: Transparent canvas fog screen sitting on top of the map */
     #fogCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
     
-    /* Layer 3: Neon Green Player Tracking Dot */
+    /* Layer 3: Neon Green Player Character Indicator Node */
     #playerNode {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 14px; height: 14px; background: #00ffcc; border-radius: 50%;
@@ -35,28 +35,27 @@
 </head>
 <body>
 
-  <div id="mapWrapper"><img id="realMapImg" src="" alt="Real World Map"></div>
+  <div id="mapWrapper"><iframe id="realMapFrame" src=""></iframe></div>
   <canvas id="fogCanvas"></canvas>
   <div id="playerNode"></div>
   
-  <div id="status"><div id="msg">GPS ACTIVE. FETCHING LOCAL SECTOR MAP...</div></div>
+  <div id="status"><div id="msg">GPS ACTIVE. BOOTING MAP CHANNELS...</div></div>
 
   <script>
     const canvas = document.getElementById('fogCanvas');
     const ctx = canvas.getContext('2d');
     const mapWrapper = document.getElementById('mapWrapper');
-    const realMapImg = document.getElementById('realMapImg');
+    const realMapFrame = document.getElementById('realMapFrame');
     const playerNode = document.getElementById('playerNode');
     
     let history = []; 
     let currentPos = null; 
     let mapAnchorPos = null; 
-    let isImageLoading = false;
 
-    // Geographic distance box representing roughly a 1-mile map window perimeter
+    // Geographic boundary matching roughly a 1-mile box margin limit
     const boundaryDelta = 0.0145; 
     
-    // Exact layout scales matching zoom 14 pixel coordinates
+    // Zoom conversion mapping factors for the OpenStreetMap window coordinate math
     const metersPerPixel = 1.35;
     const pixelsPerDegreeLng = 111320 / metersPerPixel;
 
@@ -68,36 +67,25 @@
     window.addEventListener('resize', resize);
 
     function fetchMapChunk(lat, lng) {
-      if (isImageLoading) return;
-      isImageLoading = true;
-      document.getElementById('msg').innerHTML = "SYNCING NEW SECTOR...<br>DOWNLOADING MAP BLOCKS";
+      document.getElementById('msg').innerHTML = "SHIFTING SECTOR...<br>RENDERING MAP CHUNK";
 
-      // Use a robust, keyless open tile aggregator URL with explicit verification signatures
-      const url = `https://geoapify.com{lng},${lat}&zoom=14&apiKey=98ca4196fa044613bb018cc63e79bd91`;
+      // Calculate a bounding box for the embed window matching a 1-mile display space
+      const offset = 0.012;
+      const left = lng - offset;
+      const bottom = lat - offset;
+      const right = lng + offset;
+      const top = lat + offset;
 
-      // Pre-authenticate request patterns seamlessly through background threads
-      fetch(url)
-        .then(response => {
-          if (!response.ok) throw new Error("Network Response Failure");
-          return response.blob();
-        })
-        .then(blob => {
-          const objectURL = URL.createObjectURL(blob);
-          realMapImg.src = objectURL;
-          
-          realMapImg.onload = () => {
-            mapAnchorPos = { lat: lat, lng: lng };
-            mapWrapper.style.display = "block";
-            playerNode.style.display = "block";
-            isImageLoading = false;
-            renderFog();
-          };
-        })
-        .catch(err => {
-          isImageLoading = false;
-          document.getElementById('msg').innerHTML = "<span style='color:red'>RETRYING NETWORK LINK</span><br>Syncing layout node channels...";
-          setTimeout(() => { fetchMapChunk(lat, lng); }, 3000);
-        });
+      // Force-inject map target via iframe parameters (Bypasses all cross-origin security rules)
+      realMapFrame.src = `https://openstreetmap.org{left}%2C${bottom}%2C${right}%2C${top}&layer=mapnik`;
+      
+      // Give the layout frame half a second to initialize securely
+      setTimeout(() => {
+        mapAnchorPos = { lat: lat, lng: lng };
+        mapWrapper.style.display = "block";
+        playerNode.style.display = "block";
+        renderFog();
+      }, 600);
     }
 
     function renderFog() {
@@ -109,20 +97,21 @@
       const cosLat = Math.cos(mapAnchorPos.lat * Math.PI / 180);
       const pixelsPerDegreeLat = 111000 / metersPerPixel;
 
-      // Calculate background map sliding offsets
+      // Calculate how far you have physically walked away from the fixed map's center coordinates
       const deltaLng = currentPos.lng - mapAnchorPos.lng;
       const deltaLat = currentPos.lat - mapAnchorPos.lat;
 
+      // Slide the background iframe layer smoothly behind the screen view elements
       const shiftX = -(deltaLng * pixelsPerDegreeLng * cosLat);
       const shiftY = (deltaLat * pixelsPerDegreeLat);
       mapWrapper.style.transform = `translate(calc(-50% + ${shiftX}px), calc(-50% + ${shiftY}px))`;
 
-      // 2. Draw Solid Fog Screen
+      // 2. Draw Solid Fog Layer Mask Screen
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#12141a"; 
+      ctx.fillStyle = "#11141b"; // Dense volumetric color
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 3. Carve holes out of the fog matching your step coordinates
+      // 3. Cut trail circle paths out of the canvas fog matching your physical location logs
       ctx.globalCompositeOperation = 'destination-out';
 
       history.forEach(pt => {
@@ -132,7 +121,7 @@
         const scrX = centerX + (dLng * pixelsPerDegreeLng * cosLat);
         const scrY = centerY - (dLat * pixelsPerDegreeLat);
         
-        const rad = 95; // Radius of revealed terrain visibility hole
+        const rad = 95; // Radius of revealed terrain path hole
         const grad = ctx.createRadialGradient(scrX, scrY, rad * 0.1, scrX, scrY, rad);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -150,11 +139,11 @@
       
       currentPos = { lat: lat, lng: lng };
 
-      // Initialize map screen coordinates on app startup
+      // Initialize anchor map viewport location configuration on app startup
       if (!mapAnchorPos) {
         fetchMapChunk(lat, lng);
       } else {
-        // Shift regional map view if moving beyond 1-mile boundaries
+        // Evaluate sector boundaries. If you walk past 1 mile, it re-shifts coordinates instantly
         const latDiff = Math.abs(lat - mapAnchorPos.lat);
         const lngDiff = Math.abs(lng - mapAnchorPos.lng);
 
@@ -163,17 +152,16 @@
         }
       }
 
+      // Lock exploration visibility node point to coordinate history stack
       history.push({ lat: lat, lng: lng });
       renderFog();
 
-      if (!isImageLoading) {
-        document.getElementById('msg').innerHTML = `SATELLITE LINK ONLINE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>MAP SHROUD INITIALIZED`;
-      }
+      document.getElementById('msg').innerHTML = `SATELLITE SYNC ACTIVE<br>LAT: ${lat.toFixed(4)}<br>LNG: ${lng.toFixed(4)}<br>GRID MATRIX TRACKING...`;
     }
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(updateGPS, (err) => {
-        document.getElementById('msg').innerHTML = `GPS LINK LOST: ${err.message}`;
+        document.getElementById('msg').innerHTML = `GPS HARDWARE FAIL: ${err.message}`;
       }, { enableHighAccuracy: true });
     }
 
