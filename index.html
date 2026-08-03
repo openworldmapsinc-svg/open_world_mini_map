@@ -127,13 +127,61 @@
       }
     }
 
+    // 3. Resilient GPS Tracking Logic
+    function updateLocation(position) {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      const playerLatLng = new L.LatLng(lat, lng);
+
+      playerMarker.setLatLng(playerLatLng);
+      map.setView(playerLatLng, map.getZoom()); 
+
+      // Unfog trail path
+      history.push({ lat: lat, lng: lng, radius: 80 });
+
+      // Check POIs
+      poiList.forEach(poi => {
+        if (!poi.visited) {
+          const distance = map.distance(playerLatLng, [poi.lat, poi.lng]);
+          if (distance < 150) { 
+            poi.visited = true;
+            history.push({ lat: poi.lat, lng: poi.lng, radius: 400 });
+            document.getElementById('status').innerText = `Discovered: ${poi.name}!`;
+            setTimeout(() => { document.getElementById('status').innerText = "Exploring..."; }, 4000);
+          }
+        }
+      });
+
+      drawFog();
+      if(!document.getElementById('status').innerText.includes("Discovered")) {
+        document.getElementById('status').innerText = `Location: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      }
+    }
+
+    function handleGPSError(err) {
+      document.getElementById('status').innerText = `GPS Code ${err.code}: ${err.message}`;
+    }
+
+    // iOS Safari Fix: Warm up with a simple request, then initiate tracking loop
     if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(updateLocation, (err) => {
-        document.getElementById('status').innerText = `GPS Error: ${err.message}. Check iOS Settings.`;
-      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          updateLocation(pos); // Handle first point immediately
+          
+          // Start watching location continuously
+          navigator.geolocation.watchPosition(updateLocation, handleGPSError, {
+            enableHighAccuracy: false, // Prevents iOS from freezing if satellite signal is weak indoors
+            maximumAge: 3000
+          });
+        },
+        handleGPSError
+      );
     } else {
       document.getElementById('status').innerText = "GPS not supported.";
     }
+
+    setTimeout(resizeCanvas, 500);
+
 
     // Initialize layout sizing
     setTimeout(resizeCanvas, 500);
