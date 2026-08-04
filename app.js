@@ -41,7 +41,9 @@ var MIN_ZOOM = 3;      // the whole United States
 var MAX_ZOOM = 21;     // roughly 100 feet across
 var CELL_M   = 40;     // trail de-dupe + charted-area grid
 var MAX_TRAIL= 9000;
-var GRID      = 36;    // region resolution per state (36 x 36 cells)
+var GRID      = 36;    // rows/columns used when clearing a whole state
+var POI_MILES    = 35;  // cleared around you when you reach a city
+var SECRET_MILES = 10;  // cleared around you when you stumble on a secret
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
 var LOCAL_MILES = 0.5; // local view shows half a mile in every direction
 var TINT_FULL = 5.6;   // below this zoom the chart is fully aged
@@ -54,7 +56,7 @@ var FOG_WORLD = 1;
    ═══════════════════════════════════════════════════════════════ */
 var cfg = Object.assign({}, DEFAULTS);
 var pois = [], reveals = [], trailCells = new Set(), areaCells = new Set();
-var setupDone = false;
+var setupDone = false, removed = [];
 
 var map, tiles, fogCanvas, fctx, maskCanvas, mctx, cloudCanvas, cctx, landCanvas, lctx, edgeCanvas, ectx;
 var noise = [], maskDirty = true, landDirty = true, rafId = null, lastFrame = 0;
@@ -67,6 +69,7 @@ var placeMode = false, saveTimer = null, wakeLock = null;
 var view = 'world';          // 'world' or 'local' — the only two states
 var ceremony = false;        // a discovery is playing out
 var gust = 0, gustAt = 0;    // wind blowing the fog aside
+var parX = null, parY = null; // eased parallax reference
 var audio = null;
 var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -83,6 +86,14 @@ function defaultPois(){
     return { id:'d-'+c.s+'-'+slug(c.n), name:c.n, state:c.s, lat:c.lat, lng:c.lng, found:false };
   });
 }
+function defaultSecrets(){
+  return (D.SECRETS||[]).map(function(c){
+    return { id:'s-'+c.s+'-'+slug(c.n), name:c.n, state:c.s, city:c.city,
+             lat:c.lat, lng:c.lng, found:false, secret:true };
+  });
+}
+/* the cities that count — secrets and struck-out places never do */
+function openPois(){ return pois.filter(function(p){ return !p.secret; }); }
 
 function load(){
   var raw = null;
@@ -90,11 +101,14 @@ function load(){
   var saved = (raw && Array.isArray(raw.pois)) ? raw.pois : [];
   var byId = {}; saved.forEach(function(p){ byId[p.id] = p; });
 
-  pois = defaultPois().map(function(p){
-    var s = byId[p.id];
-    if (s){ p.found = !!s.found; delete byId[p.id]; }
-    return p;
-  });
+  removed = (raw && Array.isArray(raw.removed)) ? raw.removed : [];
+  pois = defaultPois().concat(defaultSecrets())
+    .filter(function(p){ return removed.indexOf(p.id) < 0; })
+    .map(function(p){
+      var s = byId[p.id];
+      if (s){ p.found = !!s.found; delete byId[p.id]; }
+      return p;
+    });
   // keep anything the traveller added themselves
   Object.keys(byId).forEach(function(k){ if (k.charAt(0) === 'u') pois.push(byId[k]); });
 
@@ -112,7 +126,7 @@ function save(){
   saveTimer = setTimeout(function(){
     try {
       localStorage.setItem(STORE, JSON.stringify({
-        cfg: cfg, setupDone: setupDone,
+        cfg: cfg, setupDone: setupDone, removed: removed,
         pois: pois.map(function(p){
           return p.id.charAt(0) === 'u'
             ? p
@@ -130,6 +144,7 @@ function cellKey(lat,lng){
   return Math.round(lat/a) + ':' + Math.round(lng/b);
 }
 function stampArea(lat,lng,r){
+  if (r > 1500) return;                 // measured analytically instead
   var a = CELL_M/111320, b = CELL_M/(111320*Math.max(0.15, Math.cos(lat*Math.PI/180)));
   var n = Math.min(40, Math.ceil(r/CELL_M)), cy = Math.round(lat/a), cx = Math.round(lng/b);
   for (var dy=-n; dy<=n; dy++) for (var dx=-n; dx<=n; dx++)
@@ -156,7 +171,11 @@ function rebuildCells(){
 }
 function chartedSqMi(){
   var m2 = areaCells.size * CELL_M * CELL_M;
-  for (var i=0;i<reveals.length;i++) if (reveals[i].t === 'r') m2 += areaOfRegion(reveals[i]);
+  for (var i=0;i<reveals.length;i++){
+    var r = reveals[i];
+    if (r.t === 'r') m2 += areaOfRegion(r);
+    else if (r.t === 'c' && r.r > 1500) m2 += Math.PI*r.r*r.r;
+  }
   return m2 / 2589988.11;
 }
 
@@ -189,44 +208,38 @@ function inShape(code,lat,lng){
   return hit;
 }
 
-function buildRegion(poi){
-  var st = STATES[poi.state];
-  if (!st) return null;
+/* A whole state falls open once every one of its cities has been reached. */
+function stateRegion(code){
+  var st = STATES[code]; if (!st) return null;
   var b = st.bbox, s = b[0], w = b[1], n = b[2], e = b[3];
   var stepLat = (n-s)/GRID, stepLng = (e-w)/GRID;
-  var peers = pois.filter(function(p){ return p.state === poi.state; });
-  var runs = [], minLat = 99, maxLat = -99, minLng = 999, maxLng = -999;
-
+  var runs = [];
   for (var i=0;i<GRID;i++){
-    var lat = s + (i+0.5)*stepLat, start = null, prevLng = null;
+    var lat = s + (i+0.5)*stepLat, start = null, prev = null;
     for (var j=0;j<GRID;j++){
       var lng = w + (j+0.5)*stepLng;
-      var mine = false;
-      if (inShape(poi.state, lat, lng)){
-        var best = null, bestD = Infinity;
-        for (var k=0;k<peers.length;k++){
-          var d = flatDist(lat,lng,peers[k].lat,peers[k].lng);
-          if (d < bestD){ bestD = d; best = peers[k]; }
-        }
-        mine = best && best.id === poi.id;
-      }
+      var mine = inShape(code, lat, lng);
       if (mine && start === null) start = lng;
-      if (!mine && start !== null){ runs.push([r4(lat),r4(start),r4(prevLng)]); start = null; }
-      if (mine) prevLng = lng;
+      if (!mine && start !== null){ runs.push([r4(lat),r4(start),r4(prev)]); start = null; }
+      if (mine) prev = lng;
       if (mine && j === GRID-1){ runs.push([r4(lat),r4(start),r4(lng)]); start = null; }
     }
   }
   if (!runs.length) return null;
-  runs.forEach(function(r){
-    minLat = Math.min(minLat,r[0]); maxLat = Math.max(maxLat,r[0]);
-    minLng = Math.min(minLng,r[1]); maxLng = Math.max(maxLng,r[2]);
-  });
-  var far = Math.max(
-    L.latLng(poi.lat,poi.lng).distanceTo(L.latLng(minLat,minLng)),
-    L.latLng(poi.lat,poi.lng).distanceTo(L.latLng(maxLat,maxLng)));
-  return { t:'r', id:poi.id, h:stepLat, w:stepLng, runs:runs, cx:poi.lat, cy:poi.lng,
-           bb:[minLat-stepLat, minLng-stepLng, maxLat+stepLat, maxLng+stepLng], rmax:far*1.15 };
+  var c = L.latLng((s+n)/2, (w+e)/2);
+  return { t:'r', id:'state:'+code, h:stepLat, w:stepLng, runs:runs, cx:c.lat, cy:c.lng,
+           bb:[s-stepLat, w-stepLng, n+stepLat, e+stepLng],
+           rmax: c.distanceTo(L.latLng(n,e))*1.15 };
 }
+
+function stateComplete(code){
+  var inState = openPois().filter(function(p){ return p.state === code; });
+  return inState.length > 0 && inState.every(function(p){ return p.found; });
+}
+function hasStateReveal(code){
+  return reveals.some(function(r){ return r.id === 'state:'+code; });
+}
+
 function r4(v){ return Math.round(v*10000)/10000; }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -375,6 +388,7 @@ function buildMask(now, dpr, size){
       var clipped = false;
       if (rv.born){
         var t = (now - rv.born)/3000;
+        if (t < 0){ animating = true; continue; }
         if (t < 1){
           animating = true; clipped = true;
           var p0 = map.latLngToContainerPoint([rv.cx, rv.cy]);
@@ -407,14 +421,20 @@ function buildMask(now, dpr, size){
 
     if (rv.lat < b.getSouth() || rv.lat > b.getNorth() ||
         rv.lng < b.getWest()  || rv.lng > b.getEast()) continue;
-    var rr = rv.r;
+    var rr = rv.r, sway = 0, lift = 0;
     if (rv.born){
-      var tt = (now - rv.born)/1200;
-      if (tt < 1){ rr = rv.r*(1-Math.pow(1-tt,3)); animating = true; } else delete rv.born;
+      var tt = (now - rv.born)/2400;
+      if (tt < 0){ animating = true; continue; }
+      if (tt < 1){
+        rr = rv.r*(1-Math.pow(1-tt,2.6));
+        sway = Math.sin(tt*3.1)*0.08; lift = tt*0.05;
+        animating = true;
+      } else delete rv.born;
     }
     var p = map.latLngToContainerPoint([rv.lat, rv.lng]);
     var px = rr/m;
     if (px < 0.4) continue;
+    p.x += px*sway; p.y -= px*lift;
     var g = mctx.createRadialGradient(p.x,p.y,px*0.45, p.x,p.y,px*0.94);
     g.addColorStop(0,'rgba(255,255,255,1)');
     g.addColorStop(0.6,'rgba(255,255,255,0.88)');
@@ -460,15 +480,23 @@ function renderFog(now){
   gust = gustAt ? Math.max(0, 1 - (now - gustAt)/3200) : 0;
   var blow = 1 + Math.pow(gust, 1.4) * 26;
   var drift = reduceMotion ? 0 : now;
-  var org = map.getPixelOrigin();
+
+  /* Parallax follows where you are in the world, not what zoom you are at —
+     otherwise every zoom change would fling the fog across the screen. The
+     value is eased toward its target so even a teleport only drifts it. */
+  var ref = map.project(map.getCenter(), 8);
+  if (parX === null){ parX = ref.x; parY = ref.y; }
+  var lerp = Math.min(1, (now - lastFrame + 16) / 900);
+  parX += (ref.x - parX) * lerp;
+  parY += (ref.y - parY) * lerp;
   var diag = Math.sqrt(cw*cw + ch*ch);
 
   for (var i=0;i<noise.length;i++){
     var l = noise[i];
     var breathe = reduceMotion ? 1 : 1 + Math.sin(now/16000 + i*1.7)*l.br;
     var sc = l.scale * 0.5 * breathe;
-    // the fog hangs above the world: it follows the map only partly
-    var px = -org.x * l.par * 0.5, py = -org.y * l.par * 0.5;
+    // the fog hangs above the world: it follows the traveller only partly
+    var px = -parX * l.par, py = -parY * l.par;
     var ox = (drift*l.vx*blow + px) % (256*sc);
     var oy = (drift*l.vy*blow + py) % (256*sc);
     cctx.save();
@@ -577,18 +605,24 @@ function revealTrail(lat,lng){
   maskDirty = true; save(); paintStats();
 }
 
-function revealPoi(poi, animate){
+function revealPoi(poi, animate, atLat, atLng){
   if (animate) gustAt = performance.now();
-  var rg = buildRegion(poi);
-  if (rg){
-    reveals = reveals.filter(function(r){ return !(r.t === 'r' && r.id === poi.id); });
-    if (animate) rg.born = performance.now();
-    reveals.push(rg);
-  } else {
-    var c = { t:'c', lat:poi.lat, lng:poi.lng, r:25000 };
-    if (animate) c.born = performance.now();
-    reveals.push(c);
-    stampArea(poi.lat, poi.lng, 25000);
+  var lat = (atLat != null) ? atLat : poi.lat;
+  var lng = (atLng != null) ? atLng : poi.lng;
+  var r = (poi.secret ? SECRET_MILES : POI_MILES) * MILE;
+
+  var c = { t:'c', lat:r4(lat), lng:r4(lng), r:Math.round(r), id:poi.id };
+  if (animate) c.born = performance.now();
+  reveals.push(c);
+  stampArea(lat, lng, r);
+
+  // the last city in a state throws the whole state open
+  if (!poi.secret && poi.state && stateComplete(poi.state) && !hasStateReveal(poi.state)){
+    var rg = stateRegion(poi.state);
+    if (rg){
+      if (animate) rg.born = performance.now() + 700;   // follows the circle
+      reveals.push(rg);
+    }
   }
   maskDirty = true;
 }
@@ -606,7 +640,7 @@ function ensureAudio(){
   return audio;
 }
 
-function playDiscovery(){
+function playDiscovery(secret){
   if (!cfg.sound) return;
   var ac = ensureAudio(); if (!ac) return;
   var t0 = ac.currentTime + 0.02;
@@ -647,12 +681,18 @@ function playDiscovery(){
   var wet = ac.createGain(); wet.gain.value = 0.34;
   delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(out);
 
-  var notes = [
+  var notes = secret ? [
     { f:220.00, at:0.62 },   // A3
     { f:329.63, at:0.62 },   // E4
     { f:440.00, at:0.80 },   // A4
-    { f:554.37, at:0.94 },   // C#5
-    { f:659.25, at:1.06 }    // E5
+    { f:523.25, at:0.94 },   // C5  — minor third, a colder find
+    { f:659.25, at:1.10 }    // E5
+  ] : [
+    { f:220.00, at:0.62 },
+    { f:329.63, at:0.62 },
+    { f:440.00, at:0.80 },
+    { f:554.37, at:0.94 },
+    { f:659.25, at:1.06 }
   ];
   notes.forEach(function(n){
     var when = t0 + n.at;
@@ -945,8 +985,9 @@ function buildMap(){
   map.on('move', paintScale);
   map.on('click', function(e){
     if (!placeMode) return;
+    var kind = placeMode;
     setPlaceMode(false);
-    addPoi(e.latlng.lat, e.latlng.lng);
+    addPoi(e.latlng.lat, e.latlng.lng, null, kind === 'secret');
   });
   window.addEventListener('resize', function(){ maskDirty = landDirty = true; reframeRealm(); });
   window.addEventListener('orientationchange', function(){
@@ -1049,6 +1090,7 @@ function onPosition(lat,lng,acc){
   checkArrivals(lat,lng);
   shiftWindow(lat,lng);
   paintStats();
+  if (discoveryQueue.length) resumeCeremonies();
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1059,16 +1101,29 @@ function checkArrivals(lat,lng){
   for (var i=0;i<pois.length;i++){
     var p = pois[i];
     if (p.found) continue;
-    if (here.distanceTo(L.latLng(p.lat,p.lng)) <= cfg.arrivalRadiusM) discover(p);
+    if (here.distanceTo(L.latLng(p.lat,p.lng)) <= cfg.arrivalRadiusM) discover(p, lat, lng);
   }
+}
+
+/* Nothing ceremonial happens while the traveller is reading something else. */
+function uiBusy(){
+  return $('sheet').classList.contains('show') ||
+         $('setup').style.display === 'flex' ||
+         $('cart').style.display === 'flex' ||
+         !$('gate').classList.contains('gone');
 }
 var discoveryQueue = [];
 
-function discover(p){
+function discover(p, atLat, atLng){
   p.found = true;
+  p.at = (atLat != null) ? [r4(atLat), r4(atLng)] : null;
   save(); paintStats(); paintList();
   discoveryQueue.push(p);
-  if (!ceremony) runCeremony();
+  if (!ceremony && !uiBusy()) runCeremony();
+}
+/* Called whenever the traveller comes back to the map. */
+function resumeCeremonies(){
+  if (!ceremony && discoveryQueue.length && !uiBusy()) runCeremony();
 }
 
 /* Pull back to the world map, name the place, let the wind take the fog off
@@ -1083,13 +1138,13 @@ function runCeremony(){
 
   setTimeout(function(){                    // 2. name it, and start the wind
     announce(p);
-    playDiscovery();
+    playDiscovery(!!p.secret);
     if (navigator.vibrate) navigator.vibrate([20,70,34]);
   }, 1150);
 
-  setTimeout(function(){                    // 3. blow the fog off the region
+  setTimeout(function(){                    // 3. blow the fog off the ground
     gustAt = performance.now();
-    revealPoi(p, true);
+    revealPoi(p, true, p.at ? p.at[0] : null, p.at ? p.at[1] : null);
     drawPoiMarker(p, true);
   }, 1750);
 
@@ -1103,11 +1158,16 @@ function runCeremony(){
 function drawPoiMarker(p, isNew){
   if (poiLayer[p.id]){ map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
   if (!p.found) return;
-  var html = '<div class="poi'+(isNew?' new':'')+'">'+
+  var col = p.secret ? '#c0442c' : '#d9b45c';
+  var glyph = p.secret
+    ? '<path d="M7 18.5v-6.2h10v6.2z" fill="'+col+'"/>'+
+      '<path d="M7 12.3v-2h1.7v1.4h1.7v-1.4H12v1.4h1.6v-1.4h1.7v1.4H17v2" fill="none" stroke="'+col+'" stroke-width="1.1"/>'+
+      '<path d="M11 18.5v-3.2h2v3.2z" fill="rgba(14,11,7,.92)"/>'
+    : '<path d="M12 5.6l1.7 3.9 4.2.4-3.2 2.8 1 4.1L12 14.6l-3.7 2.2 1-4.1-3.2-2.8 4.2-.4z" fill="'+col+'"/>';
+  var html = '<div class="poi'+(isNew?' new':'')+(p.secret?' secret':'')+'">'+
     '<svg width="26" height="30" viewBox="0 0 24 28">'+
     '<path d="M12 27C12 27 3.6 17.2 3.6 10.8A8.4 8.4 0 1 1 20.4 10.8C20.4 17.2 12 27 12 27Z" '+
-      'fill="rgba(14,11,7,.9)" stroke="#d9b45c" stroke-width="1.2"/>'+
-    '<path d="M12 5.6l1.7 3.9 4.2.4-3.2 2.8 1 4.1L12 14.6l-3.7 2.2 1-4.1-3.2-2.8 4.2-.4z" fill="#d9b45c"/>'+
+      'fill="rgba(14,11,7,.9)" stroke="'+col+'" stroke-width="1.2"/>'+ glyph +
     '</svg></div>';
   poiLayer[p.id] = L.marker([p.lat,p.lng], {
     icon:L.divIcon({ className:'', html:html, iconSize:[26,30], iconAnchor:[13,27] })
@@ -1119,12 +1179,16 @@ function refreshPoiMarkers(){
   pois.forEach(function(p){ drawPoiMarker(p,false); });
 }
 
-function addPoi(lat,lng,name){
-  var n = name || ask('Name this place', 'Waypoint ' + (pois.length+1));
+function addPoi(lat,lng,name,secret){
+  var n = name || ask(secret ? 'Name this secret' : 'Name this place',
+                      secret ? 'Secret ' + (pois.filter(function(p){return p.secret;}).length+1)
+                             : 'Waypoint ' + (openPois().length+1));
   if (n === null) return null;
-  var p = { id:uid(), name:(n||'Unnamed').trim(), state:stateOf(lat,lng), lat:lat, lng:lng, found:false };
+  var p = { id:uid(), name:(n||'Unnamed').trim(), state:stateOf(lat,lng),
+            lat:lat, lng:lng, found:false };
+  if (secret){ p.secret = true; p.city = 'a place unmarked'; }
   pois.push(p); save(); paintList(); paintStats();
-  toast('Added to the map: ' + p.name);
+  toast(secret ? 'A secret waits there.' : 'Added to the map: ' + p.name);
   if (pos) checkArrivals(pos.lat,pos.lng);
   return p;
 }
@@ -1139,14 +1203,19 @@ function toast(msg){
 }
 function announce(p){
   var b = $('banner');
+  var place = p.state && STATES[p.state] ? STATES[p.state].name : 'the wilds';
+  $('banner-eyebrow').textContent = p.secret ? 'Secret Discovered' : 'Discovered';
   $('banner-name').textContent = p.name;
-  $('banner-sub').textContent = p.state && STATES[p.state] ? STATES[p.state].name : 'the wilds';
+  $('banner-sub').textContent = p.secret && p.city ? p.city + ', ' + place : place;
+  b.classList.toggle('secret', !!p.secret);
   b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
 }
-function setPlaceMode(on){
-  placeMode = on;
-  $('b-drop').classList.toggle('on', on);
-  if (on) toast('Touch the map to mark a place.');
+function setPlaceMode(kind){
+  placeMode = kind || false;
+  $('b-drop').classList.toggle('on', placeMode === 'poi');
+  $('b-secret').classList.toggle('on', placeMode === 'secret');
+  if (placeMode) toast(placeMode === 'secret'
+    ? 'Touch the map to hide a secret.' : 'Touch the map to mark a place.');
 }
 function hideGate(){
   var g = $('gate');
@@ -1158,8 +1227,8 @@ function paintStats(){
   var mi2 = chartedSqMi();
   $('s-area').innerHTML = (mi2 < 10 ? mi2.toFixed(2) : Math.round(mi2).toLocaleString()) +
     ' <small>mi²</small>';
-  var found = pois.filter(function(p){ return p.found; }).length;
-  $('s-poi').textContent = found + ' / ' + pois.length;
+  var open = openPois();
+  $('s-poi').textContent = open.filter(function(p){ return p.found; }).length + ' / ' + open.length;
   $('s-acc').innerHTML = pos ? ('±'+Math.round(pos.acc)+' <small>m</small>') : '—';
 }
 
@@ -1175,7 +1244,7 @@ function groupByState(list){
 function paintList(){
   var q = ($('poi-search').value || '').toLowerCase();
   var el = $('poi-list');
-  var list = pois.filter(function(p){
+  var list = openPois().filter(function(p){
     if (!q) return true;
     var st = p.state && STATES[p.state] ? STATES[p.state].name.toLowerCase() : '';
     return p.name.toLowerCase().indexOf(q) >= 0 || st.indexOf(q) >= 0;
@@ -1237,7 +1306,7 @@ function travelTo(p){
 function openSheet(open){
   $('sheet').classList.toggle('show', open);
   $('scrim').classList.toggle('show', open);
-  if (open) paintList();
+  if (open) paintList(); else setTimeout(resumeCeremonies, 350);
 }
 
 function paintSettings(){
@@ -1300,6 +1369,15 @@ function introSequence(){
     function(){ openSetup(); showStep(1); }
   );
 }
+function neverQuestion(){
+  $('setup').style.display = 'none';
+  cartographer(
+    ['Some ground is not worth the walking.',
+     'Tell me — what will you never see?'],
+    'Strike them out', null,
+    function(){ $('setup').style.display = 'flex'; showStep(3); paintNeverList(); }
+  );
+}
 function secondQuestion(){
   $('setup').style.display = 'none';
   cartographer(
@@ -1329,12 +1407,49 @@ function openSetup(){
 }
 function showStep(n){
   $('step1').style.display = n === 1 ? 'flex' : 'none';
+  $('step3').style.display = n === 3 ? 'flex' : 'none';
   $('step2').style.display = n === 2 ? 'flex' : 'none';
+}
+
+var struck = {};
+function paintNeverList(){
+  var q = ($('never-search').value || '').toLowerCase();
+  var el = $('never-list'); el.innerHTML = '';
+  var g = groupByState(openPois().filter(function(p){
+    if (!q) return true;
+    var st = p.state && STATES[p.state] ? STATES[p.state].name.toLowerCase() : '';
+    return p.name.toLowerCase().indexOf(q) >= 0 || st.indexOf(q) >= 0;
+  }));
+  Object.keys(g).sort(function(x,y){
+    return (STATES[x]?STATES[x].name:'zz') < (STATES[y]?STATES[y].name:'zz') ? -1 : 1;
+  }).forEach(function(k){
+    var h = document.createElement('div'); h.className = 'state-head';
+    h.innerHTML = '<span>'+(STATES[k]?STATES[k].name:'Elsewhere')+'</span>';
+    el.appendChild(h);
+    g[k].forEach(function(p){
+      var row = document.createElement('button');
+      row.className = 'check strike' + (struck[p.id] ? ' on' : '');
+      row.innerHTML = '<span class="box"></span><span class="nm"></span>';
+      row.querySelector('.nm').textContent = p.name;
+      row.onclick = function(){
+        struck[p.id] = !struck[p.id];
+        row.classList.toggle('on', !!struck[p.id]);
+        countStruck();
+      };
+      el.appendChild(row);
+    });
+  });
+  countStruck();
+}
+function countStruck(){
+  var n = Object.keys(struck).filter(function(k){ return struck[k]; }).length;
+  $('never-count').textContent = n === 0 ? 'Everything stays' :
+    n + (n === 1 ? ' place struck out' : ' places struck out');
 }
 function paintSetupList(){
   var q = ($('setup-search').value || '').toLowerCase();
   var el = $('setup-list'); el.innerHTML = '';
-  var g = groupByState(pois.filter(function(p){
+  var g = groupByState(openPois().filter(function(p){
     if (!q) return true;
     var st = p.state && STATES[p.state] ? STATES[p.state].name.toLowerCase() : '';
     return p.name.toLowerCase().indexOf(q) >= 0 || st.indexOf(q) >= 0;
@@ -1410,6 +1525,15 @@ function paintAdded(){
 function finishSetup(){
   added.forEach(function(p){ pois.push(p); });
   added = [];
+
+  // strike out everywhere the traveller will never go
+  var gone = Object.keys(struck).filter(function(k){ return struck[k]; });
+  if (gone.length){
+    gone.forEach(function(id){ if (removed.indexOf(id) < 0) removed.push(id); });
+    pois = pois.filter(function(p){ return gone.indexOf(p.id) < 0; });
+    struck = {};
+  }
+
   var any = false;
   pois.forEach(function(p){
     if (visited[p.id]){ p.found = true; revealPoi(p, false); any = true; }
@@ -1420,6 +1544,7 @@ function finishSetup(){
   maskDirty = true;
   if (any) toast('Your travels are on the map.');
   beginTracking();
+  setTimeout(resumeCeremonies, 600);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1499,8 +1624,11 @@ function wire(){
 
   // setup wizard
   $('setup-search').oninput = paintSetupList;
-  $('s1-next').onclick = function(){ secondQuestion(); };
-  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); secondQuestion(); };
+  $('s1-next').onclick = function(){ neverQuestion(); };
+  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); neverQuestion(); };
+  $('never-search').oninput = paintNeverList;
+  $('s3-next').onclick = function(){ secondQuestion(); };
+  $('s3-none').onclick = function(){ struck = {}; paintNeverList(); secondQuestion(); };
   $('add-go').onclick = searchPlace;
   $('add-search').onkeydown = function(e){ if (e.key === 'Enter'){ e.preventDefault(); searchPlace(); } };
   $('add-coord').onclick = function(){
@@ -1520,7 +1648,8 @@ function wire(){
 
   $('b-center').onclick = recenter;
   $('b-sheet').onclick  = function(){ openSheet(true); };
-  $('b-drop').onclick   = function(){ setPlaceMode(!placeMode); };
+  $('b-drop').onclick   = function(){ setPlaceMode(placeMode === 'poi' ? false : 'poi'); };
+  $('b-secret').onclick = function(){ setPlaceMode(placeMode === 'secret' ? false : 'secret'); };
   $('scrim').onclick    = function(){ openSheet(false); };
   $('poi-search').oninput = paintList;
 
@@ -1581,14 +1710,15 @@ function wire(){
     inp.click();
   };
   $('a-redo').onclick = function(){
-    visited = {}; pois.forEach(function(p){ if (p.found) visited[p.id] = true; });
+    visited = {}; struck = {};
+    pois.forEach(function(p){ if (p.found && !p.secret) visited[p.id] = true; });
     openSheet(false); introSequence();
   };
   $('a-reset').onclick = function(){
     if (!confirm('Let the fog return? Every charted mile is forgotten.')) return;
     reveals = []; trailCells = new Set(); areaCells = new Set();
     path = []; drawPath();
-    pois.forEach(function(p){ p.found = false; });
+    pois.forEach(function(p){ p.found = false; p.at = null; });
     refreshPoiMarkers(); maskDirty = true; save(); paintStats(); paintList();
     toast('The world is dark again.');
   };

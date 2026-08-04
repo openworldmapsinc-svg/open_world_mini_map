@@ -7,7 +7,7 @@ The real world under fog. Travel it, and the map remembers.
 | File | Purpose |
 |---|---|
 | `index.html` | Shell — markup, art direction, HUD, cartographer scene, setup screens |
-| `data.js` | The 130 default cities by state, state extents, US outline, creatures and sea lettering |
+| `data.js` | 128 cities and 48 secrets by state, state extents, US outline, realm frames |
 | `app.js` | Fog engine, region unfogging, GPS, audio, wizard |
 | `manifest.json` | Home-screen install metadata |
 | `sw.js` | Caches the app and every tile you've loaded |
@@ -24,8 +24,8 @@ animates up and types his line out; each appearance is announced by a short word
 screen. After the first answer the scene cuts back to him for the second question, and after the
 last one he says *"Very good. Good luck out there."* and cackles before the world opens.
 
-The two questions are the same as before: which cities you have already seen, and what else you
-want on the map. Checked cities are unfogged immediately and silently. Added places are searched
+He asks three things: which cities you have already seen, **what you will never see** — struck out
+and removed from the map for good — and what else you want added. Checked cities are unfogged immediately and silently. Added places are searched
 through OpenStreetMap's Nominatim service, or entered as coordinates. Tapping the dialogue box
 skips the typing. You can reopen the whole sequence from **Expedition → Revisit the questions**.
 
@@ -42,11 +42,14 @@ strip that should have been hidden.
 **Travelling** clears a soft circle around you as you move (trail clearing, default 150 m).
 
 **Arriving at a city** plays out as a short ceremony: the map pulls back to world view, the place
-is named on screen, a gust runs through the fog and carries it off the region over about three
-seconds with the wind cue underneath it, and then the view drops back to where you are standing.
-Simultaneous arrivals queue and play one after another.
+is named on screen, a gust runs through the fog and carries it off over about three seconds with the
+wind cue underneath it, and then the view drops back to where you are standing. Simultaneous
+arrivals queue and play one after another, and nothing starts while you have the atlas, the settings
+or the Cartographer open — a held discovery waits until you are back on the map.
 
-The city clears its share of its state. Each state is divided among its
+Reaching a city clears **35 miles in every direction from wherever you were standing** when it
+triggered — not from the city's own coordinates. When every city in a state has been reached, that
+whole state falls open at once. Each state is divided among its
 cities by proximity: every point in the state belongs to whichever city is nearest. So in
 California, San Francisco opens 57% of the state — everything north of roughly Fresno — Los
 Angeles opens 35% from the middle down, and San Diego opens the bottom 7%. The split is computed
@@ -85,6 +88,15 @@ the default **Nightfall** style carries none, so the local map reads plainly and
 **Fog stops at the coast.** It is clipped to a US outline (`OUTLINE` in `data.js`), so the Pacific,
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
 American ground is hidden. Travelling outside the US at local zoom restores ordinary fog everywhere.
+
+## Secrets
+
+Forty-eight places are hidden in the data and never appear in the atlas, the setup questions or any
+count — you find them only by wandering close enough. A secret announces itself as **Secret
+Discovered** in red rather than gold, names the town it hides in, plays a colder minor chord, drops a
+castle marker instead of a star, and clears **10 miles**. Secrets never count toward opening a state.
+
+For testing, the red **+** below the gold one hides a secret wherever you tap.
 
 ## Your travel path
 

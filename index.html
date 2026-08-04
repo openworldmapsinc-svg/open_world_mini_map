@@ -133,6 +133,14 @@
     text-shadow:0 1px 4px #000,0 0 14px rgba(0,0,0,.95)}
   @keyframes unfurl{0%{opacity:0;transform:translateY(16px) scale(.95)}
     8%{opacity:1;transform:none}82%{opacity:1}100%{opacity:0}}
+  /* a secret announces itself in red */
+  #banner.secret .orn{color:var(--seal)}
+  #banner.secret .eyebrow{color:#e0674c}
+  #banner.secret .name{color:#ffe9e2}
+  #banner.secret .sub{color:#e79b86}
+  .btn.red{color:var(--seal)}
+  .btn.red.on{color:#e0674c;border-color:var(--seal)}
+  .poi.secret svg path:first-child{filter:drop-shadow(0 0 6px rgba(192,68,44,.5))}
 
   /* ---------- sheets ---------- */
   #scrim{position:absolute;inset:0;background:rgba(6,4,2,.66);z-index:950;opacity:0;pointer-events:none;
@@ -313,6 +321,11 @@
     border:solid #17120b;border-width:0 2px 2px 0;transform:rotate(42deg)}
   .check .nm{font-family:var(--display);font-size:14px;color:var(--parchment)}
   .check.on .nm{color:var(--gold-pale)}
+  .check.strike .box{border-color:rgba(163,58,38,.6)}
+  .check.strike.on .box{background:var(--seal);border-color:var(--seal)}
+  .check.strike.on .box:after{border-color:#17120b}
+  .check.strike.on .nm{color:var(--parchment-dim);text-decoration:line-through;
+    text-decoration-color:rgba(163,58,38,.8)}
 
   .result{display:block;width:100%;text-align:left;padding:10px 6px;background:none;border:0;
     border-bottom:1px solid rgba(217,180,92,.1);color:var(--parchment);font-family:var(--body);
@@ -370,6 +383,10 @@
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
         <path d="M12 5v14M5 12h14"/></svg>
     </button>
+    <button class="btn red" id="b-secret" aria-label="Hide a secret (testing)">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
+        <path d="M12 5v14M5 12h14"/></svg>
+    </button>
   </div>
 </div>
 
@@ -378,7 +395,7 @@
     <path d="M0 6h170"/><path d="M270 6h170"/>
     <path d="M186 6l17-5 17 5-17 5z"/><path d="M220 6l17-5 17 5-17 5z"/>
   </svg>
-  <div class="eyebrow">Discovered</div>
+  <div class="eyebrow" id="banner-eyebrow">Discovered</div>
   <div class="name" id="banner-name"></div>
   <div class="sub" id="banner-sub"></div>
   <svg class="orn" viewBox="0 0 440 12" fill="none" stroke="currentColor" stroke-width="1" style="margin-top:8px">
@@ -416,7 +433,7 @@
     <div id="poi-list"></div>
     <button class="act" id="a-add-here">Mark where I stand</button>
     <button class="act" id="a-add-coord">Mark by coordinates</button>
-    <div class="note">Pinch open for the local view, pinch closed for the world map — those are the only two. Use + on the map to mark a place by touch. A city stays unseen until you come
+    <div class="note">The red + hides a secret for testing. Pinch open for the local view, pinch closed for the world map — those are the only two. Use + on the map to mark a place by touch. A city stays unseen until you come
       within arrival range, then it clears its share of the state.</div>
   </div>
 
@@ -496,6 +513,18 @@
       <div class="count" id="setup-count">Nothing yet</div>
       <button class="alt" id="s1-none">Nowhere yet</button>
       <button class="go" id="s1-next">Next</button>
+    </div>
+  </div>
+
+  <div class="step" id="step3" style="display:none">
+    <div class="ask"><b>The Cartographer</b>
+      Some ground is not worth the walking. Tell me — what will you never see?</div>
+    <div class="tools"><input class="search" id="never-search" type="text" placeholder="Find a city or state…"></div>
+    <div class="listwrap"><div id="never-list"></div></div>
+    <div class="foot">
+      <div class="count" id="never-count">Everything stays</div>
+      <button class="alt" id="s3-none">Keep them all</button>
+      <button class="go" id="s3-next">Next</button>
     </div>
   </div>
 

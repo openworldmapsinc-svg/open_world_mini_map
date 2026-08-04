@@ -109,6 +109,63 @@ REALMS: {
 },
 
 
+/* ── Secrets ───────────────────────────────────────────────────────
+   Never listed, never configurable, never counted toward clearing a
+   state. Found only by wandering close enough. */
+SECRETS: [
+  {n:"Uncle Sam Statue",              s:'CT', city:'Danbury',               lat:41.3979, lng:-73.4501},
+  {n:"The Fountain of Youth",         s:'DE', city:'Lewes',                 lat:38.7815, lng:-75.1534},
+  {n:"Desert of Maine",               s:'ME', city:'Freeport',              lat:43.8590, lng:-70.1562},
+  {n:"Tecumseh Statue",               s:'MD', city:'Annapolis',             lat:38.9818, lng:-76.4842},
+  {n:"Hockomock Swamp",               s:'MA', city:'Bridgewater',           lat:41.9882, lng:-71.1039},
+  {n:"America's Stonehenge",          s:'NH', city:'Salem',                 lat:42.8443, lng:-71.2406},
+  {n:"Lucy the Elephant",             s:'NJ', city:'Margate City',          lat:39.3228, lng:-74.5002},
+  {n:"Old City Hall Station",         s:'NY', city:'New York City',         lat:40.7121, lng:-74.0041},
+  {n:"Mutter Museum",                 s:'PA', city:'Philadelphia',          lat:39.9532, lng:-75.1766},
+  {n:"Providence Athenaeum",          s:'RI', city:'Providence',            lat:41.8249, lng:-71.4081},
+  {n:"Gorilla Holding a VW Beetle",   s:'VT', city:'Salisbury',             lat:43.9169, lng:-73.1114},
+
+  {n:"Unclaimed Baggage Center",      s:'AL', city:'Scottsboro',            lat:34.6732, lng:-86.0446},
+  {n:"Miss Laura's Brothel Museum",   s:'AR', city:'Fort Smith',            lat:35.3917, lng:-94.4294},
+  {n:"U.S. Route 1 Mile 0",           s:'FL', city:'Key West',              lat:24.5512, lng:-81.7972},
+  {n:"The Georgia Guidestones Site",  s:'GA', city:'Elberton',              lat:34.2324, lng:-82.8942},
+  {n:"Colonel Sanders' Grave",        s:'KY', city:'Louisville',            lat:38.2114, lng:-85.7001},
+  {n:"The Pyramid Tomb",              s:'LA', city:'New Orleans',           lat:29.9592, lng:-90.0710},
+  {n:"Windsor Ruins",                 s:'MS', city:'Port Gibson',           lat:31.9029, lng:-91.1309},
+  {n:"Appalachian Pinball Museum",    s:'NC', city:'Hendersonville',        lat:35.3168, lng:-82.4611},
+  {n:"Stumphouse Tunnel",             s:'SC', city:'Walhalla',              lat:34.8118, lng:-83.1232},
+  {n:"The Lost Sea",                  s:'TN', city:'Sweetwater',            lat:35.5347, lng:-84.4287},
+  {n:"Dinosaur Land",                 s:'VA', city:'White Post',            lat:39.0392, lng:-78.1878},
+  {n:"The Greenbrier Bunker",         s:'WV', city:'White Sulphur Springs', lat:37.7845, lng:-80.3090},
+
+  {n:"The Leaning Tower of Niles",    s:'IL', city:'Niles',                 lat:42.0125, lng:-87.7825},
+  {n:"World's Largest Ball of Paint", s:'IN', city:'Alexandria',            lat:40.2319, lng:-85.6601},
+  {n:"The Day the Music Died",        s:'IA', city:'Clear Lake',            lat:43.2205, lng:-93.3853},
+  {n:"The Garden of Eden",            s:'KS', city:'Lucas',                 lat:39.0575, lng:-98.5361},
+  {n:"The Heidelberg Project",        s:'MI', city:'Detroit',               lat:42.3584, lng:-83.0215},
+  {n:"World's Largest Ball of Twine", s:'MN', city:'Darwin',                lat:45.0964, lng:-94.4101},
+  {n:"Ha Ha Tonka Castle Ruins",      s:'MO', city:'Camdenton',             lat:37.9782, lng:-92.7675},
+  {n:"Carhenge",                      s:'NE', city:'Alliance',              lat:42.1422, lng:-102.8580},
+  {n:"The Pyramid of North Dakota",   s:'ND', city:'Nekoma',                lat:48.5872, lng:-98.3533},
+  {n:"The Haserot Angel",             s:'OH', city:'Cleveland',             lat:41.5126, lng:-81.5979},
+  {n:"Crazy Horse Memorial",          s:'SD', city:'Custer',                lat:43.8368, lng:-103.6244},
+  {n:"The House on the Rock",         s:'WI', city:'Spring Green',          lat:43.1002, lng:-90.1347},
+
+  {n:"The Goose Creek Tower",         s:'AK', city:'Willow',                lat:62.0393, lng:-150.0858},
+  {n:"The Wave",                      s:'AZ', city:'Marble Canyon',         lat:36.9961, lng:-112.0061},
+  {n:"The Mystery Spot",              s:'CA', city:'Santa Cruz',            lat:37.0125, lng:-122.0021},
+  {n:"Bishop Castle",                 s:'CO', city:'Rye',                   lat:38.0617, lng:-105.0942},
+  {n:"UFO Peace Park",                s:'HI', city:'Pahoa',                 lat:19.4674, lng:-154.9458},
+  {n:"EBR-1 Atomic Museum",           s:'ID', city:'Arco',                  lat:43.5135, lng:-112.9419},
+  {n:"Garnet Ghost Town",             s:'MT', city:'Drummond',              lat:46.8258, lng:-113.3392},
+  {n:"Area 51",                       s:'NV', city:'Groom Lake',            lat:37.2350, lng:-115.8111},
+  {n:"The Lightning Field",           s:'NM', city:'Catron County',         lat:34.5211, lng:-108.1031},
+  {n:"Thor's Well",                   s:'OR', city:'Yachats',               lat:44.2784, lng:-124.1133},
+  {n:"The Gilgal Sculpture Garden",   s:'UT', city:'Salt Lake City',        lat:40.7611, lng:-111.8741},
+  {n:"The Gum Wall",                  s:'WA', city:'Seattle',               lat:47.6074, lng:-122.3403},
+  {n:"Smith Mansion",                 s:'WY', city:'Wapiti Valley',         lat:44.4719, lng:-109.4319}
+],
+
 CITIES: [
   {n:'Gulf Shores',        s:'AL', lat:30.2460, lng:-87.7008},
   {n:'Birmingham',         s:'AL', lat:33.5186, lng:-86.8104},
@@ -157,7 +214,6 @@ CITIES: [
   {n:'Sun Valley',         s:'ID', lat:43.6968, lng:-114.3517},
 
   {n:'Chicago',            s:'IL', lat:41.8781, lng:-87.6298},
-  {n:'Manteno',            s:'IL', lat:41.2497, lng:-87.8367},
 
   {n:'Indianapolis',       s:'IN', lat:39.7684, lng:-86.1581},
   {n:'Bloomington',        s:'IN', lat:39.1653, lng:-86.5264},
@@ -250,7 +306,6 @@ CITIES: [
   {n:'Providence',         s:'RI', lat:41.8240, lng:-71.4128},
 
   {n:'Myrtle Beach',       s:'SC', lat:33.6891, lng:-78.8867},
-  {n:'Greenville',         s:'SC', lat:34.8526, lng:-82.3940},
   {n:'Charleston',         s:'SC', lat:32.7765, lng:-79.9311},
   {n:'Hilton Head Island', s:'SC', lat:32.2163, lng:-80.7526},
 
