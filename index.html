@@ -48,6 +48,7 @@
   html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--parchment);
     font-family:var(--body);font-size:16px;overscroll-behavior:none;touch-action:manipulation}
   #map{position:absolute;inset:0;background:#0b0906}
+  .leaflet-pane canvas{transition:opacity .5s ease}
 
   /* the tile tint is set from app.js and eases off as you zoom in */
   .leaflet-tile-pane{transition:filter .4s ease}
@@ -113,29 +114,25 @@
   .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .stack{display:flex;flex-direction:column;gap:9px}
 
-  /* ---------- marginalia ---------- */
-  .lore{color:#4a3a1e;opacity:.72}
-  .lore svg{width:100%;height:100%;overflow:visible}
-  .lore .ink{fill:none;stroke:currentColor;stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round}
-  .lore .ink .fill{fill:currentColor;stroke:none}
-  .lore .ink .soft{fill:rgba(122,95,44,.22);stroke:currentColor;stroke-width:1.6}
-  .lore .ink .thin{stroke-width:1.2;opacity:.75}
-  .lore-label{font-family:var(--display);font-weight:600;color:#4a3a1e;opacity:.66;
-    letter-spacing:.24em;text-transform:uppercase;white-space:nowrap;
-    transform-origin:0 0;text-shadow:0 1px 0 rgba(255,246,220,.35)}
-  .era-myth .leaflet-tile-pane{mix-blend-mode:normal}
-
   /* ---------- discovery banner ---------- */
-  #banner{position:absolute;left:0;right:0;top:30%;z-index:900;text-align:center;pointer-events:none;opacity:0}
-  #banner.show{animation:unfurl 4.4s ease forwards}
-  #banner .orn{display:block;margin:0 auto;width:min(80vw,440px);height:12px;color:var(--gold)}
-  #banner .eyebrow{font-family:var(--display);font-size:9px;letter-spacing:.5em;
-    text-transform:uppercase;color:var(--gold-deep);margin:8px 0 2px}
+  #banner{position:absolute;left:0;right:0;top:28%;z-index:900;text-align:center;pointer-events:none;opacity:0}
+  #banner.show{animation:unfurl 5s ease forwards}
+  /* a soft well of shade so the lettering holds up over pale ocean or snow */
+  #banner:before{content:"";position:absolute;left:50%;top:50%;width:min(150vw,900px);height:320px;
+    transform:translate(-50%,-50%);z-index:-1;
+    background:radial-gradient(60% 50% at 50% 50%,rgba(6,4,2,.88) 0%,rgba(6,4,2,.66) 45%,rgba(6,4,2,0) 78%)}
+  #banner .orn{display:block;margin:0 auto;width:min(80vw,440px);height:12px;color:var(--gold);
+    filter:drop-shadow(0 1px 3px rgba(0,0,0,.95))}
+  #banner .eyebrow{font-family:var(--display);font-size:9px;letter-spacing:.5em;text-transform:uppercase;
+    color:var(--gold);margin:8px 0 2px;text-shadow:0 1px 4px #000,0 0 12px rgba(0,0,0,.9)}
   #banner .name{font-family:var(--display);font-weight:700;font-size:clamp(26px,8.5vw,42px);
-    letter-spacing:.05em;color:var(--parchment);text-shadow:0 3px 30px rgba(0,0,0,.95),0 0 40px rgba(217,180,92,.25)}
-  #banner .sub{font-family:var(--body);font-style:italic;font-size:15px;color:var(--gold);margin-top:2px}
+    letter-spacing:.05em;color:#fff6e2;
+    text-shadow:0 2px 4px rgba(0,0,0,.98),0 0 18px rgba(0,0,0,.9),0 0 46px rgba(0,0,0,.85),
+      0 0 2px rgba(0,0,0,.9)}
+  #banner .sub{font-family:var(--body);font-style:italic;font-size:15px;color:var(--gold-pale);margin-top:2px;
+    text-shadow:0 1px 4px #000,0 0 14px rgba(0,0,0,.95)}
   @keyframes unfurl{0%{opacity:0;transform:translateY(16px) scale(.95)}
-    10%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
+    8%{opacity:1;transform:none}82%{opacity:1}100%{opacity:0}}
 
   /* ---------- sheets ---------- */
   #scrim{position:absolute;inset:0;background:rgba(6,4,2,.66);z-index:950;opacity:0;pointer-events:none;
@@ -419,7 +416,7 @@
     <div id="poi-list"></div>
     <button class="act" id="a-add-here">Mark where I stand</button>
     <button class="act" id="a-add-coord">Mark by coordinates</button>
-    <div class="note">Pinch to zoom from a hundred feet to the whole country. Use + on the map to mark a place by touch. A city stays unseen until you come
+    <div class="note">Pinch open for the local view, pinch closed for the world map — those are the only two. Use + on the map to mark a place by touch. A city stays unseen until you come
       within arrival range, then it clears its share of the state.</div>
   </div>
 
@@ -438,10 +435,10 @@
     <div class="sect">Terrain</div>
     <label class="field"><span class="lab">Style of map</span>
       <select id="f-style">
+        <option value="night">Nightfall</option>
         <option value="parchment">Aged parchment</option>
         <option value="ink">Cartographer's ink</option>
         <option value="wild">Wilderness relief</option>
-        <option value="night">Nightfall</option>
         <option value="realm">Realm from above</option>
       </select></label>
     <label class="switch"><span class="txt">Sound of discovery</span>

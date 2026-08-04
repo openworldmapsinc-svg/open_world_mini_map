@@ -108,36 +108,6 @@ REALMS: {
   hi:   { name:'Hawaii',          bounds:[[18.6,-160.8],[22.6,-154.5]] }
 },
 
-/* ── Marginalia ────────────────────────────────────────────────────
-   Creatures and lettering drawn beyond the fog. kind must match a
-   glyph in app.js; size is roughly the height in pixels. */
-LORE: [
-  { kind:'ship',    lat: 45.5, lng:-133.0, size:66 },
-  { kind:'ship',    lat: 30.0, lng:-129.5, size:58 },
-  { kind:'compass', lat: 21.5, lng: -62.0, size:104 },
-  { kind:'ship',    lat: 40.5, lng: -62.5, size:66 },
-  { kind:'ship',    lat: 27.0, lng: -70.5, size:58 },
-  { kind:'ship',    lat: 21.5, lng: -94.5, size:58 },
-  { kind:'pines',   lat: 51.5, lng:-118.0, size:56 },
-  { kind:'peaks',   lat: 54.0, lng:-122.5, size:60 },
-  { kind:'pines',   lat: 50.5, lng: -80.0, size:56 },
-  { kind:'peaks',   lat: 52.0, lng: -68.0, size:56 },
-  { kind:'pines',   lat: 53.0, lng:-100.0, size:52 },
-  { kind:'volcano', lat: 19.5, lng:-102.5, size:62 },
-  { kind:'castle',  lat: 19.8, lng: -99.2, size:52 },
-  { kind:'peaks',   lat: 25.5, lng:-106.5, size:56 },
-  { kind:'volcano', lat: 19.4, lng:-155.3, size:54 },
-  { kind:'peaks',   lat: 62.5, lng:-149.0, size:58 }
-],
-
-LABELS: [
-  { text:'The Whispering Sea',      lat: 39.0, lng:-138.0, rot:-90, size:15 },
-  { text:'The Great Eastern Deep',  lat: 34.0, lng: -60.5, rot: -68, size:15 },
-  { text:'The Sunken Gulf',         lat: 25.6, lng: -87.5, rot:  0, size:13 },
-  { text:'Kingdoms of the Frozen North', lat: 58.5, lng:-100.0, rot:0, size:14 },
-  { text:'The Sunward Realms',      lat: 22.5, lng:-103.5, rot: 12, size:13 },
-  { text:'Charted by the Cartographer', lat: 30.5, lng:-137.5, rot:-90, size:11 }
-],
 
 CITIES: [
   {n:'Gulf Shores',        s:'AL', lat:30.2460, lng:-87.7008},

@@ -16,10 +16,10 @@ var DEFAULTS = {
   shiftThreshold: 0.70,   // recenter when you pass this much of the view
   maxAccuracyM  : 150,
   pathOpacity   : 0.4,    // faint red trail; 0 hides it
-  style         : 'parchment',
+  style         : 'night',
   sim           : false,
   sound         : true,
-  zoom          : null,
+  view          : 'world',
   simLat        : null,
   simLng        : null
 };
@@ -43,8 +43,11 @@ var CELL_M   = 40;     // trail de-dupe + charted-area grid
 var MAX_TRAIL= 9000;
 var GRID      = 36;    // region resolution per state (36 x 36 cells)
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
-var LORE_FULL = 5.6;   // below this zoom the realm is fully illustrated
-var LORE_GONE = 8.2;   // above this it is a plain modern map
+var LOCAL_MILES = 0.5; // local view shows half a mile in every direction
+var TINT_FULL = 5.6;   // below this zoom the chart is fully aged
+var TINT_GONE = 8.2;   // above this the tint is gone
+var FOG_LOCAL = 0.86;  // fog is faintly translucent up close
+var FOG_WORLD = 1;
 
 /* ═══════════════════════════════════════════════════════════════
    STATE
@@ -56,11 +59,14 @@ var setupDone = false;
 var map, tiles, fogCanvas, fctx, maskCanvas, mctx, cloudCanvas, cctx, landCanvas, lctx, edgeCanvas, ectx;
 var noise = [], maskDirty = true, landDirty = true, rafId = null, lastFrame = 0;
 var canBlur = false;
-var youMarker, accCircle, poiLayer = {}, loreLayer = null, pathLines = [];
+var youMarker, accCircle, poiLayer = {}, pathLines = [];
 var path = [];                    // array of segments, each an array of [lat,lng]
 var pos = null, anchor = null, watchId = null;
 var simPos = null, simVec = {x:0,y:0}, simSprint = false, simTimer = null;
 var placeMode = false, saveTimer = null, wakeLock = null;
+var view = 'world';          // 'world' or 'local' — the only two states
+var ceremony = false;        // a discovery is playing out
+var gust = 0, gustAt = 0;    // wind blowing the fog aside
 var audio = null;
 var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -274,11 +280,11 @@ function initFog(){
   catch(e){ canBlur = false; }
 
   noise = [
-    // tint      scale  drift          parallax  alpha  breathe  spin
-    { img:makeNoise(256, 3, 3, 0.30, 250), tint:'#080b12', scale:4.6, vx: 0.0016, vy: 0.0009, par:0.05, alpha:0.62, br:0.05, spin: 0.0000045 },
-    { img:makeNoise(256, 4, 4, 0.34, 300), tint:'#c3c9da', scale:2.7, vx: 0.0040, vy:-0.0015, par:0.10, alpha:0.34, br:0.09, spin:-0.0000030 },
-    { img:makeNoise(256, 6, 4, 0.40, 340), tint:'#dfe4f0', scale:1.5, vx:-0.0069, vy: 0.0026, par:0.17, alpha:0.26, br:0.12, spin: 0.0000062 },
-    { img:makeNoise(256, 5, 3, 0.44, 300), tint:'#0a0d15', scale:2.1, vx: 0.0028, vy: 0.0034, par:0.13, alpha:0.30, br:0.10, spin:-0.0000051 }
+    // tint      scale  drift (slow)     parallax  alpha  breathe  spin
+    { img:makeNoise(256, 3, 3, 0.30, 250), tint:'#080b12', scale:4.6, vx: 0.00030, vy: 0.00016, par:0.020, alpha:0.62, br:0.030, spin: 0.0000012 },
+    { img:makeNoise(256, 4, 4, 0.34, 300), tint:'#c3c9da', scale:2.7, vx: 0.00072, vy:-0.00026, par:0.035, alpha:0.34, br:0.045, spin:-0.0000008 },
+    { img:makeNoise(256, 6, 4, 0.40, 340), tint:'#dfe4f0', scale:1.5, vx:-0.00115, vy: 0.00042, par:0.055, alpha:0.26, br:0.060, spin: 0.0000016 },
+    { img:makeNoise(256, 5, 3, 0.44, 300), tint:'#0a0d15', scale:2.1, vx: 0.00048, vy: 0.00056, par:0.045, alpha:0.30, br:0.050, spin:-0.0000013 }
   ].map(function(l){
     var c = document.createElement('canvas');
     c.width = c.height = l.img.width;
@@ -339,7 +345,14 @@ function buildLand(){
       var p = map.latLngToContainerPoint([ring[i][1], ring[i][0]]);
       if (i === 0) lctx.moveTo(p.x,p.y); else lctx.lineTo(p.x,p.y);
     }
-    lctx.closePath(); lctx.fill();
+    lctx.closePath();
+    lctx.fill();
+    // dilate the coast a little: better the fog spills onto the sea than
+    // leaves a bare strip inland
+    lctx.strokeStyle = '#fff';
+    lctx.lineWidth = 14;
+    lctx.lineJoin = 'round';
+    lctx.stroke();
   }
   landDirty = false;
 }
@@ -361,18 +374,24 @@ function buildMask(now, dpr, size){
           rv.bb[3] < b.getWest()  || rv.bb[1] > b.getEast()) continue;
       var clipped = false;
       if (rv.born){
-        var t = (now - rv.born)/1800;
+        var t = (now - rv.born)/3000;
         if (t < 1){
           animating = true; clipped = true;
           var p0 = map.latLngToContainerPoint([rv.cx, rv.cy]);
-          var rad = (rv.rmax * (1-Math.pow(1-t,2.4))) / m;
+          // the clearing runs downwind rather than opening as a neat circle
+          var ease = 1-Math.pow(1-t,2.2);
+          var rad = (rv.rmax * ease) / m;
+          p0.x += Math.sin(t*3.1) * rad * 0.10;
+          p0.y -= rad * 0.06 * t;
           mctx.save(); mctx.beginPath(); mctx.arc(p0.x,p0.y,Math.max(1,rad),0,6.2832); mctx.clip();
         } else delete rv.born;
       }
       var cellPx = (rv.h*111320)/m;
-      var grow = cellPx*0.55;                       // overlap neighbours so runs melt together
+      // runs overlap enough to melt together, but the cleared shape is kept
+      // a touch inside its true edge — the blur on carve spreads it back out
+      var grow = cellPx*0.18;
       mctx.shadowColor = 'rgba(255,255,255,1)';
-      mctx.shadowBlur  = Math.max(3, Math.min(40, cellPx*0.7));
+      mctx.shadowBlur  = Math.max(2, Math.min(22, cellPx*0.35));
       for (var k=0;k<rv.runs.length;k++){
         var run = rv.runs[k];
         var nw = map.latLngToContainerPoint([run[0]+rv.h/2, run[1]-rv.w/2]);
@@ -396,12 +415,12 @@ function buildMask(now, dpr, size){
     var p = map.latLngToContainerPoint([rv.lat, rv.lng]);
     var px = rr/m;
     if (px < 0.4) continue;
-    var g = mctx.createRadialGradient(p.x,p.y,px*0.35, p.x,p.y,px*1.15);
+    var g = mctx.createRadialGradient(p.x,p.y,px*0.45, p.x,p.y,px*0.94);
     g.addColorStop(0,'rgba(255,255,255,1)');
-    g.addColorStop(0.55,'rgba(255,255,255,0.9)');
+    g.addColorStop(0.6,'rgba(255,255,255,0.88)');
     g.addColorStop(1,'rgba(255,255,255,0)');
     mctx.fillStyle = g;
-    mctx.beginPath(); mctx.arc(p.x,p.y,px*1.15,0,6.2832); mctx.fill();
+    mctx.beginPath(); mctx.arc(p.x,p.y,px*0.94,0,6.2832); mctx.fill();
     mctx.fillStyle = '#fff';
   }
   maskDirty = animating;   // keep rebuilding while something is opening
@@ -437,24 +456,27 @@ function renderFog(now){
   cctx.fillStyle = '#141720';
   cctx.fillRect(0,0,cw,ch);
 
+  // a discovery sends a gust through the fog
+  gust = gustAt ? Math.max(0, 1 - (now - gustAt)/3200) : 0;
+  var blow = 1 + Math.pow(gust, 1.4) * 26;
   var drift = reduceMotion ? 0 : now;
   var org = map.getPixelOrigin();
   var diag = Math.sqrt(cw*cw + ch*ch);
 
   for (var i=0;i<noise.length;i++){
     var l = noise[i];
-    var breathe = reduceMotion ? 1 : 1 + Math.sin(now/7000 + i*1.7)*l.br;
+    var breathe = reduceMotion ? 1 : 1 + Math.sin(now/16000 + i*1.7)*l.br;
     var sc = l.scale * 0.5 * breathe;
     // the fog hangs above the world: it follows the map only partly
     var px = -org.x * l.par * 0.5, py = -org.y * l.par * 0.5;
-    var ox = (drift*l.vx + px) % (256*sc);
-    var oy = (drift*l.vy + py) % (256*sc);
+    var ox = (drift*l.vx*blow + px) % (256*sc);
+    var oy = (drift*l.vy*blow + py) % (256*sc);
     cctx.save();
     cctx.translate(cw/2, ch/2);
-    if (!reduceMotion) cctx.rotate(Math.sin(now*l.spin)*0.09);
+    if (!reduceMotion) cctx.rotate(Math.sin(now*l.spin)*0.05);
     cctx.translate(-cw/2 + ox, -ch/2 + oy);
     cctx.scale(sc, sc);
-    cctx.globalAlpha = Math.max(0, l.alpha + (reduceMotion ? 0 : Math.sin(now/5200 + i*2.1)*0.06));
+    cctx.globalAlpha = Math.max(0, (l.alpha + (reduceMotion ? 0 : Math.sin(now/9000 + i*2.1)*0.04)) * (1 - gust*0.18));
     cctx.fillStyle = l.pat;
     var pad = diag/sc;
     cctx.fillRect(-pad, -pad, pad*3, pad*3);
@@ -492,14 +514,14 @@ function renderFog(now){
   // 4. carve out everything charted
   if (maskDirty) buildMask(now, dpr, size);
   fctx.globalCompositeOperation = 'destination-out';
-  if (canBlur) fctx.filter = 'blur(' + Math.round(fogCanvas.width*0.008) + 'px)';
+  if (canBlur) fctx.filter = 'blur(' + Math.round(fogCanvas.width*0.005) + 'px)';
   fctx.drawImage(maskCanvas, 0, 0, fogCanvas.width, fogCanvas.height);
   fctx.filter = 'none';
 
   // 5. light the curling edge so the fog has a body
   if (canBlur){
     fctx.globalCompositeOperation = 'source-atop';
-    fctx.globalAlpha = 0.5 + (reduceMotion ? 0 : Math.sin(now/2600)*0.09);
+    fctx.globalAlpha = 0.5 + (reduceMotion ? 0 : Math.sin(now/7000)*0.07);
     fctx.drawImage(edgeCanvas, 0, 0, fogCanvas.width, fogCanvas.height);
     fctx.globalAlpha = 1;
   }
@@ -530,7 +552,7 @@ function startLoop(){
   if (rafId) return;
   var step = function(now){
     rafId = requestAnimationFrame(step);
-    if (now - lastFrame < (reduceMotion ? 200 : 33)) return;
+    if (now - lastFrame < (reduceMotion ? 200 : (gust > 0 ? 33 : 45))) return;
     lastFrame = now;
     renderFog(now);
   };
@@ -556,6 +578,7 @@ function revealTrail(lat,lng){
 }
 
 function revealPoi(poi, animate){
+  if (animate) gustAt = performance.now();
   var rg = buildRegion(poi);
   if (rg){
     reveals = reveals.filter(function(r){ return !(r.t === 'r' && r.id === poi.id); });
@@ -698,90 +721,105 @@ function setRealm(key, move){
   maskDirty = landDirty = true;
   paintScale();
 }
-function reframeRealm(){ if (realm) setRealm(realm, false); }
+function reframeRealm(){
+  if (!realm) return;
+  setRealm(realm, false);
+  if (view === 'world') setWorldView(false); else setLocalView(false);
+}
 
-/* ═══════════════════════════════════════════════════════════════
-   MARGINALIA — creatures and lettering for the world-scale chart
-   ═══════════════════════════════════════════════════════════════ */
-var ART = {
-  ship:
-    '<svg viewBox="0 0 100 90"><g class="ink">'+
-    '<path class="soft" d="M14 66h72l-10 14H24z"/><path d="M50 66V10"/>'+
-    '<path class="soft" d="M50 16c14 4 20 10 22 16-8 4-16 4-22 2zM50 40c-14 3-20 8-22 14 8 4 16 4 22 2z"/>'+
-    '<path d="M50 10l12 4-12 4z" class="fill"/>'+
-    '<path class="thin" d="M2 82c12 0 14-4 24-4M74 78c10 0 12 4 24 4"/>'+
-    '</g></svg>',
-  whale:
-    '<svg viewBox="0 0 120 70"><g class="ink">'+
-    '<path class="soft" d="M20 48c8-12 26-18 44-14 12 3 20 9 28 8l14-6-8 14 8 12-16-6c-10 2-18 6-30 6-22 0-36-6-40-14z"/>'+
-    '<circle cx="36" cy="44" r="1.8" class="fill"/>'+
-    '<path class="thin" d="M40 30c2-8 0-12-4-16M40 30c6-6 8-10 8-16"/>'+
-    '<path class="thin" d="M4 62c12 0 14-4 24-4M88 60c10 0 12 4 24 4"/>'+
-    '</g></svg>',
-  volcano:
-    '<svg viewBox="0 0 100 90"><g class="ink">'+
-    '<path class="soft" d="M8 82h84L62 30H38z"/><path d="M38 30h24"/>'+
-    '<path class="thin" d="M44 26c-2-8 2-14 0-20M56 26c2-8-2-14 0-20M50 22c0-10 0-14 0-18"/>'+
-    '<path class="thin" d="M46 42l6 16 8-10 4 22"/>'+
-    '</g></svg>',
-  peaks:
-    '<svg viewBox="0 0 120 60"><g class="ink">'+
-    '<path class="soft" d="M4 54l24-38 18 26 14-20 22 32z"/><path class="soft" d="M62 54l20-28 34 28z"/>'+
-    '<path class="thin" d="M28 22l6 8-6 6-6-6zM82 30l5 7-5 5-5-5z"/>'+
-    '</g></svg>',
-  pines:
-    '<svg viewBox="0 0 100 60"><g class="ink">'+
-    '<path class="soft" d="M20 52H10l10-16 10 16zM20 40h-7l7-12 7 12z"/><path d="M20 52v6"/>'+
-    '<path class="soft" d="M50 54H38l12-20 12 20zM50 40h-8l8-14 8 14z"/><path d="M50 54v6"/>'+
-    '<path class="soft" d="M80 52H70l10-16 10 16zM80 40h-7l7-12 7 12z"/><path d="M80 52v6"/>'+
-    '</g></svg>',
-  castle:
-    '<svg viewBox="0 0 90 70"><g class="ink">'+
-    '<path class="soft" d="M14 62V28h62v34z"/><path d="M14 28v-8h8v6h10v-6h8v6h10v-6h8v6h10v-6h8v8"/>'+
-    '<path d="M40 62V46h10v16z"/><path class="thin" d="M24 38h8v8h-8zM58 38h8v8h-8z"/>'+
-    '</g></svg>',
-  compass:
-    '<svg viewBox="0 0 120 120"><g class="ink">'+
-    '<circle cx="60" cy="60" r="54"/><circle cx="60" cy="60" r="42" class="thin"/>'+
-    '<path d="M60 6l8 46 46 8-46 8-8 46-8-46-46-8 46-8z" class="soft"/>'+
-    '<path class="thin" d="M88 32L68 52M32 88l20-20M88 88L68 68M32 32l20 20"/>'+
-    '<circle cx="60" cy="60" r="5" class="fill"/>'+
-    '</g></svg>'
-};
+/* ── The two views ───────────────────────────────────────────────
+   There is no free zoom. Pinch open for the local view — half a mile
+   in every direction around you — and pinch closed for the framed
+   world map. Nothing in between. */
+function localZoom(lat){
+  var s = map.getSize();
+  var half = Math.max(80, Math.min(s.x, s.y)/2);
+  var target = MILE*LOCAL_MILES/half;                       // desired metres per pixel
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM,
+    Math.log2(156543.03392*Math.cos(lat*Math.PI/180)/target)));
+}
+
+function setLocalView(animate){
+  if (!pos) return false;
+  view = 'local'; cfg.view = 'local'; save();
+  anchor = L.latLng(pos.lat, pos.lng);
+  var z = localZoom(pos.lat);
+  if (animate) map.flyTo(anchor, z, { duration:1.1, easeLinearity:.28 });
+  else map.setView(anchor, z, { animate:false });
+  applyViewState();
+  return true;
+}
+
+function setWorldView(animate){
+  view = 'world'; cfg.view = 'world'; save();
+  var b = realmBounds(realm || 'us48');
+  if (b){
+    if (animate) map.flyToBounds(b, { duration:1.1, easeLinearity:.28 });
+    else map.fitBounds(b, { animate:false });
+    anchor = b.getCenter();
+  }
+  applyViewState();
+}
+
+function toggleView(){
+  if (view === 'world') { if (!setLocalView(true)) toast('Waiting to find you.'); }
+  else setWorldView(true);
+}
+
+function applyViewState(){
+  if (fogCanvas) fogCanvas.style.opacity = view === 'local' ? FOG_LOCAL : FOG_WORLD;
+  document.body.classList.toggle('view-local', view === 'local');
+  maskDirty = landDirty = true;
+  paintScale();
+}
+
+/* Pinch, wheel and double-tap all just choose between the two views. */
+function bindViewGestures(){
+  var el = map.getContainer(), start = 0, fired = false;
+
+  el.addEventListener('touchstart', function(e){
+    if (e.touches.length !== 2) return;
+    var dx = e.touches[0].clientX - e.touches[1].clientX;
+    var dy = e.touches[0].clientY - e.touches[1].clientY;
+    start = Math.hypot(dx,dy); fired = false;
+  }, { passive:true });
+
+  el.addEventListener('touchmove', function(e){
+    if (e.touches.length !== 2 || !start || fired) return;
+    var dx = e.touches[0].clientX - e.touches[1].clientX;
+    var dy = e.touches[0].clientY - e.touches[1].clientY;
+    var ratio = Math.hypot(dx,dy)/start;
+    if (ratio > 1.22){ fired = true; if (view !== 'local') setLocalView(true); }
+    else if (ratio < 0.82){ fired = true; if (view !== 'world') setWorldView(true); }
+  }, { passive:true });
+
+  el.addEventListener('touchend', function(){ start = 0; }, { passive:true });
+
+  var wheelLock = 0;
+  el.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var now = Date.now();
+    if (now - wheelLock < 900) return;
+    wheelLock = now;
+    if (e.deltaY < 0){ if (view !== 'local') setLocalView(true); }
+    else if (view !== 'world') setWorldView(true);
+  }, { passive:false });
+
+  var lastTap = 0;
+  el.addEventListener('click', function(){
+    var now = Date.now();
+    if (now - lastTap < 320) toggleView();
+    lastTap = now;
+  });
+}
 
 
 
-function buildLore(){
-  map.createPane('lore');
-  var pane = map.getPane('lore');
-  pane.style.zIndex = 430;
-  pane.style.pointerEvents = 'none';
-  pane.style.transition = 'opacity .35s';
 
+function buildPanes(){
   map.createPane('trail');
   map.getPane('trail').style.zIndex = 470;
   map.getPane('trail').style.pointerEvents = 'none';
-
-  loreLayer = L.layerGroup([], { pane:'lore' }).addTo(map);
-
-  (D.LORE || []).forEach(function(m){
-    var art = ART[m.kind]; if (!art) return;
-    var w = Math.round(m.size*1.25);
-    L.marker([m.lat,m.lng], {
-      pane:'lore', interactive:false, keyboard:false,
-      icon:L.divIcon({ className:'', html:'<div class="lore" style="width:'+w+'px;height:'+m.size+'px">'+art+'</div>',
-                       iconSize:[w,m.size], iconAnchor:[w/2,m.size/2] })
-    }).addTo(loreLayer);
-  });
-
-  (D.LABELS || []).forEach(function(t){
-    L.marker([t.lat,t.lng], {
-      pane:'lore', interactive:false, keyboard:false,
-      icon:L.divIcon({ className:'',
-        html:'<div class="lore-label" style="font-size:'+t.size+'px;transform:rotate('+(t.rot||0)+'deg)">'+
-             t.text+'</div>', iconSize:[0,0], iconAnchor:[0,0] })
-    }).addTo(loreLayer);
-  });
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -892,14 +930,14 @@ function buildMap(){
   map = L.map('map', {
     zoomControl:false, attributionControl:true,
     dragging:false, keyboard:false, boxZoom:false,
-    touchZoom:true, scrollWheelZoom:true, doubleClickZoom:true, bounceAtZoomLimits:true,
-    zoomSnap:0, zoomDelta:0.6, wheelPxPerZoomLevel:90,
+    touchZoom:false, scrollWheelZoom:false, doubleClickZoom:false, bounceAtZoomLimits:true,
+    zoomSnap:0, zoomDelta:0,
     minZoom:MIN_ZOOM, maxZoom:MAX_ZOOM,
     center:[39.5,-98.35], zoom:cfg.zoom || 4
   });
   map.attributionControl.setPrefix('');
   setTiles(cfg.style);
-  buildLore();
+  buildPanes();
   initFog();
 
   map.on('zoom', function(){ applyEra(map.getZoom()); paintScale(); });
@@ -915,12 +953,14 @@ function buildMap(){
     setTimeout(function(){ maskDirty = landDirty = true; reframeRealm(); }, 350);
   });
   setRealm('us48', true);
+  bindViewGestures();
+  applyViewState();
 }
 
 /* Far out, the world is drawn as a chart of the realms. Close in, it is
    the plain modern map of wherever you are standing. */
 function applyEra(z){
-  var t = Math.max(0, Math.min(1, (z - LORE_FULL) / (LORE_GONE - LORE_FULL))); // 0 = myth, 1 = real
+  var t = Math.max(0, Math.min(1, (z - TINT_FULL) / (TINT_GONE - TINT_FULL))); // 0 = myth, 1 = real
   var pane = map.getPane('tilePane');
   var s = STYLES[cfg.style] || STYLES.parchment;
   if (s.filter === 'aged'){
@@ -933,12 +973,6 @@ function applyEra(z){
     pane.style.filter = 'sepia(' + (0.9 - 0.6*t).toFixed(2) + ') saturate(.6) contrast(1.2) brightness(.9)';
   } else pane.style.filter = '';
 
-  var lore = map.getPane('lore');
-  if (lore){
-    lore.style.opacity = (1 - t).toFixed(2);
-    lore.style.display = t >= 1 ? 'none' : '';
-  }
-  document.body.classList.toggle('era-myth', t < 0.5);
 }
 
 function setTiles(key){
@@ -966,6 +1000,7 @@ function paintScale(){
 }
 
 function shiftWindow(lat,lng){
+  if (view !== 'local' || ceremony) return;
   var p = L.latLng(lat,lng);
   if (!anchor || p.distanceTo(anchor) > viewHalfMeters()*cfg.shiftThreshold){
     anchor = p;
@@ -974,6 +1009,7 @@ function shiftWindow(lat,lng){
 }
 function recenter(){
   if (!pos) return;
+  if (view !== 'local'){ setLocalView(true); return; }
   anchor = L.latLng(pos.lat,pos.lng);
   map.setView(anchor, map.getZoom(), { animate:true, duration:0.6 });
   maskDirty = true;
@@ -989,7 +1025,7 @@ function onPosition(lat,lng,acc){
   if (first){
     setRealm(realmOf(lat,lng), false);
     anchor = L.latLng(lat,lng);
-    map.setView(anchor, cfg.zoom || 13, { animate:false });
+    if (cfg.view === 'world') setWorldView(false); else setLocalView(false);
     applyEra(map.getZoom()); paintScale();
     hideGate();
   }
@@ -1026,14 +1062,42 @@ function checkArrivals(lat,lng){
     if (here.distanceTo(L.latLng(p.lat,p.lng)) <= cfg.arrivalRadiusM) discover(p);
   }
 }
+var discoveryQueue = [];
+
 function discover(p){
   p.found = true;
-  revealPoi(p, true);
-  drawPoiMarker(p, true);
-  announce(p);
-  playDiscovery();
-  if (navigator.vibrate) navigator.vibrate([20,70,34]);
   save(); paintStats(); paintList();
+  discoveryQueue.push(p);
+  if (!ceremony) runCeremony();
+}
+
+/* Pull back to the world map, name the place, let the wind take the fog off
+   it, then drop back to where the traveller is standing. */
+function runCeremony(){
+  var p = discoveryQueue.shift();
+  if (!p){ ceremony = false; return; }
+  ceremony = true;
+  var wasLocal = (view === 'local');
+
+  setWorldView(true);                       // 1. pull back
+
+  setTimeout(function(){                    // 2. name it, and start the wind
+    announce(p);
+    playDiscovery();
+    if (navigator.vibrate) navigator.vibrate([20,70,34]);
+  }, 1150);
+
+  setTimeout(function(){                    // 3. blow the fog off the region
+    gustAt = performance.now();
+    revealPoi(p, true);
+    drawPoiMarker(p, true);
+  }, 1750);
+
+  setTimeout(function(){                    // 4. back to the traveller
+    if (discoveryQueue.length){ runCeremony(); return; }
+    ceremony = false;
+    if (wasLocal || pos) setLocalView(true);
+  }, 6200);
 }
 
 function drawPoiMarker(p, isNew){
@@ -1452,7 +1516,7 @@ function wire(){
   $('s2-done').onclick = function(){ farewell(finishSetup); };
 
   // HUD
-  $('f-realm').onchange = function(){ setRealm(this.value, true); this.blur(); };
+  $('f-realm').onchange = function(){ setRealm(this.value, true); setWorldView(true); this.blur(); };
 
   $('b-center').onclick = recenter;
   $('b-sheet').onclick  = function(){ openSheet(true); };

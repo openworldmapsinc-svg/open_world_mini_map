@@ -32,14 +32,21 @@ skips the typing. You can reopen the whole sequence from **Expedition → Revisi
 ## How the fog clears
 
 The fog is a living body rather than a flat sheet: four layers of tileable noise, two lit and two
-shadowed, drift at different speeds, turn slowly, breathe in and out, and lag behind the map as you
-move so they read as hanging above the world rather than pinned to it. A vertical gradient weights
-it heavier below, and the fog rim just outside cleared ground is lit so the edge looks like it has
-thickness.
+shadowed, drift very slowly at different speeds, turn, breathe in and out over about sixteen
+seconds, and lag behind the map as you move so they read as hanging above the world rather than
+pinned to it. A vertical gradient weights it heavier below, and the fog rim just outside cleared
+ground is lit so the edge looks like it has thickness. Where the fog's extent is uncertain it errs
+on the side of covering more — better a little spill onto cleared ground or open sea than a bare
+strip that should have been hidden.
 
 **Travelling** clears a soft circle around you as you move (trail clearing, default 150 m).
 
-**Arriving at a city** clears that city's share of its state. Each state is divided among its
+**Arriving at a city** plays out as a short ceremony: the map pulls back to world view, the place
+is named on screen, a gust runs through the fog and carries it off the region over about three
+seconds with the wind cue underneath it, and then the view drops back to where you are standing.
+Simultaneous arrivals queue and play one after another.
+
+The city clears its share of its state. Each state is divided among its
 cities by proximity: every point in the state belongs to whichever city is nearest. So in
 California, San Francisco opens 57% of the state — everything north of roughly Fresno — Los
 Angeles opens 35% from the middle down, and San Diego opens the bottom 7%. The split is computed
@@ -50,29 +57,30 @@ State shapes are rectangles for now. To use true outlines, define `window.OW_STA
 `{ CA: [[[lng,lat], ...]], ... }` before `app.js` loads — the region builder will clip to the
 polygon automatically, no other change needed.
 
-## Zoom and realms
+## Two views, and realms
 
-**Pinch to zoom**, from roughly **100 feet across** out to the framed realm. Scroll wheel and
-double-tap work too. The **Span** reading in the crest is the width of the short edge of the screen.
-Whatever the scale, the view recenters on you when you reach 70% of the way to the edge.
+There is no free zoom. The map has exactly two states:
 
-Zooming out stops at a **hard boundary** that frames the continental United States with the Pacific,
-the Atlantic, Canada and Mexico around it — you cannot pull back past the frame or drift outside it.
+- **Local view** — centred on you, half a mile in every direction. The fog here is slightly
+  translucent, so you can just make out the streets beneath it.
+- **World view** — the framed continental United States, with the Pacific, the Atlantic, Canada and
+  Mexico around it. The fog is fully opaque, and the frame is a hard boundary you cannot pull back
+  past or drift outside of.
 
-Because that frame excludes them, Alaska and Hawaii have their own frames. The faint **Realms**
+Pinch open for local, pinch closed for world. Scroll wheel and double-tap toggle as well. In local
+view the map follows you, shifting when you reach 70% of the way to the edge.
+
+Because the world frame excludes them, Alaska and Hawaii have their own frames. The faint **Realms**
 picker in the bottom-left corner switches between *The Forty-Eight*, *Alaska* and *Hawaii*; each has
 its own zoom-out limit and boundary. The app also switches automatically to whichever realm you are
 standing in. Frames are defined in `REALMS` in `data.js`.
 
 ## Two maps in one
 
-Zoomed out, the country is drawn as an old chart: heavy parchment tint, sailing ships in the
-oceans, mountain and pine wilds across Canada, a volcano and a castle over Mexico, a compass rose in
-the Atlantic, and lettered seas. The monsters are gone — no hydras, no yeti — leaving the classic
-cartographic marginalia. As you zoom past about level 6 the illustration fades and the tint eases
-off, so by street level you are looking at the plain, accurate modern map of wherever you are
-standing. Marginalia and lettering live in `data.js` under `LORE` and `LABELS`; their drawings are
-in the `ART` block at the top of `app.js`.
+There are no drawn creatures, ships, wilds or invented sea names on the map — all of that has been
+removed. The atmosphere comes from the fog, the tinting and the interface. Terrain styles that carry
+a tint (Aged parchment, Cartographer's ink) ease it off as you move from world view to local view;
+the default **Nightfall** style carries none, so the local map reads plainly and accurately.
 
 **Fog stops at the coast.** It is clipped to a US outline (`OUTLINE` in `data.js`), so the Pacific,
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
@@ -100,7 +108,7 @@ state split.
 
 ## Map styles
 
-Aged parchment (default), Cartographer's ink, Wilderness relief, Nightfall, Realm from above.
+Nightfall (default), Aged parchment, Cartographer's ink, Wilderness relief, Realm from above.
 The first three are ordinary OSM-based tiles with a sepia filter over the tile layer only, so the
 fog and UI keep their own colour. Attribution must stay visible. For real traffic, move to a keyed
 tile plan (MapTiler, Stadia, Mapbox) and swap the URL in `STYLES` at the top of `app.js`.
