@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="34%" r="78%">
-      <stop offset="0%" stop-color="#18202f"/>
-      <stop offset="100%" stop-color="#05080f"/>
+    <radialGradient id="bg" cx="50%" cy="30%" r="82%">
+      <stop offset="0%" stop-color="#241b10"/><stop offset="100%" stop-color="#0a0704"/>
     </radialGradient>
-    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#e6c882"/>
-      <stop offset="55%" stop-color="#c8a45c"/>
-      <stop offset="100%" stop-color="#7a5f22"/>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f0dda4"/><stop offset="55%" stop-color="#d9b45c"/>
+      <stop offset="100%" stop-color="#6d5216"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="256" cy="256" r="196" fill="none" stroke="#c8a45c" stroke-opacity=".22" stroke-width="4"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#c8a45c" stroke-opacity=".14" stroke-width="4"/>
-  <path d="M256 52 L288 224 L460 256 L288 288 L256 460 L224 288 L52 256 L224 224 Z"
-        fill="url(#brass)" fill-opacity=".9"/>
-  <circle cx="256" cy="256" r="26" fill="#05080f"/>
-  <circle cx="256" cy="256" r="12" fill="#e6c882"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#8a6a22" stroke-width="4"/>
+  <circle cx="256" cy="256" r="156" fill="none" stroke="#8a6a22" stroke-width="3" opacity=".7"/>
+  <g fill="#8a6a22">
+    <path d="M380 380l-11-11 11-11 11 11z"/><path d="M132 380l-11-11 11-11 11 11z"/>
+    <path d="M380 132l-11-11 11-11 11 11z"/><path d="M132 132l-11-11 11-11 11 11z"/>
+  </g>
+  <path d="M256 50 L280 232 L462 256 L280 280 L256 462 L232 280 L50 256 L232 232 Z" fill="url(#gold)"/>
+  <circle cx="256" cy="256" r="28" fill="#0a0704"/>
+  <circle cx="256" cy="256" r="13" fill="#f0dda4"/>
 </svg>

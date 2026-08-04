@@ -1,21 +1,24 @@
-/* Fogbound service worker
-   - app shell: cache-first, refreshed in the background
-   - map tiles: cache-first with a size cap, so ground you've already
-     walked keeps rendering when the signal drops
+/* Open World Maps — service worker
+   - app shell: cache-first
+   - map tiles + fonts: cache-first with a size cap, so charted ground
+     keeps rendering when the signal drops
+   - place lookups (Nominatim) always go to the network
 */
-const VERSION    = 'v3';
-const SHELL      = 'fogbound-shell-' + VERSION;
-const TILES      = 'fogbound-tiles-' + VERSION;
-const TILE_LIMIT = 1200;
+const VERSION    = 'v4';
+const SHELL      = 'ow-shell-' + VERSION;
+const TILES      = 'ow-tiles-' + VERSION;
+const TILE_LIMIT = 1500;
 
 const SHELL_FILES = [
   './',
   './index.html',
+  './data.js',
+  './app.js',
   './manifest.json',
   './icon.svg',
+  './icon-180.png',
   './icon-192.png',
   './icon-512.png',
-  './icon-180.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
@@ -24,15 +27,20 @@ const TILE_HOSTS = [
   'basemaps.cartocdn.com',
   'tile.openstreetmap.org',
   'tile.opentopomap.org',
-  'server.arcgisonline.com'
+  'server.arcgisonline.com',
+  'fonts.gstatic.com'
 ];
+
+const SHELL_HOSTS = ['unpkg.com', 'fonts.googleapis.com'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL).then(cache =>
-      // allSettled: a missing optional icon must not fail the whole install
       Promise.allSettled(SHELL_FILES.map(url =>
-        cache.add(new Request(url, { cache: 'reload', mode: url.startsWith('http') ? 'cors' : 'same-origin' }))
+        cache.add(new Request(url, {
+          cache: 'reload',
+          mode: url.startsWith('http') ? 'cors' : 'same-origin'
+        }))
       ))
     ).then(() => self.skipWaiting())
   );
@@ -41,17 +49,14 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(
-        keys.filter(k => k.startsWith('fogbound-') && k !== SHELL && k !== TILES)
-            .map(k => caches.delete(k))
-      ))
+      .then(keys => Promise.all(keys
+        .filter(k => k.startsWith('ow-') && k !== SHELL && k !== TILES)
+        .map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('message', e => {
-  if (e.data === 'skipWaiting') self.skipWaiting();
-});
+self.addEventListener('message', e => { if (e.data === 'skipWaiting') self.skipWaiting(); });
 
 async function trimCache(name, max) {
   const cache = await caches.open(name);
@@ -67,11 +72,14 @@ self.addEventListener('fetch', event => {
   let url;
   try { url = new URL(req.url); } catch { return; }
 
-  // ---- map tiles: cache first, fill in behind the scenes ----
+  // place lookups must never be served stale
+  if (url.hostname.endsWith('nominatim.openstreetmap.org')) return;
+
+  // tiles and font files
   if (TILE_HOSTS.some(h => url.hostname.endsWith(h))) {
     event.respondWith((async () => {
       const cache = await caches.open(TILES);
-      const hit   = await cache.match(req);
+      const hit = await cache.match(req);
       if (hit) return hit;
       try {
         const res = await fetch(req);
@@ -81,14 +89,13 @@ self.addEventListener('fetch', event => {
         }
         return res;
       } catch {
-        // no tile, no network: fog covers it anyway
-        return new Response('', { status: 504, statusText: 'Tile unavailable offline' });
+        return new Response('', { status: 504, statusText: 'Unavailable offline' });
       }
     })());
     return;
   }
 
-  // ---- navigations: network first, fall back to the cached shell ----
+  // page loads
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -105,11 +112,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ---- everything else: cache first, revalidate quietly ----
+  // own files and known libraries
+  const own = url.origin === self.location.origin;
+  if (!own && !SHELL_HOSTS.some(h => url.hostname.endsWith(h))) return;
+
   event.respondWith((async () => {
     const cache = await caches.open(SHELL);
-    const hit   = await cache.match(req);
-    const net   = fetch(req).then(res => {
+    const hit = await cache.match(req);
+    const net = fetch(req).then(res => {
       if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
       return res;
     }).catch(() => hit);
