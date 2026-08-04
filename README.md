@@ -7,13 +7,13 @@ The real world under fog. Travel it, and the map remembers.
 | File | Purpose |
 |---|---|
 | `index.html` | Shell — markup, art direction, HUD, zoom rail, setup screens |
-| `data.js` | The 137 default cities by state, plus state extents |
+| `data.js` | The 130 default cities by state, state extents, US outline, creatures and sea lettering |
 | `app.js` | Fog engine, region unfogging, GPS, audio, wizard |
 | `manifest.json` | Home-screen install metadata |
 | `sw.js` | Caches the app and every tile you've loaded |
 | `icon.svg`, `icon-180/192/512.png`, `icon-maskable-512.png` | App icons |
 
-All seven files go in the repo root. No build step.
+All eleven files go in the repo root. No build step.
 
 ## First run
 
@@ -39,9 +39,30 @@ polygon automatically, no other change needed.
 
 ## Zoom
 
-The rail on the right runs from roughly **100 feet across** to the **whole United States**
-(zoom 3–21), continuously. The reading under it is the width of the short edge of the screen.
-Whatever the scale, the view recenters on you when you reach 70% of the way to the edge.
+**Pinch to zoom**, from roughly **100 feet across** to the **whole United States** (zoom 3–21),
+continuously. Scroll wheel and double-tap work too. The **Span** reading in the crest is the width
+of the short edge of the screen. Whatever the scale, the view recenters on you when you reach 70%
+of the way to the edge.
+
+## Two maps in one
+
+Zoomed out, the country is drawn as a chart of the realms: heavy parchment tint, sea serpents and
+krakens in the oceans, yeti and pine wilds across Canada, dragons and a volcano over Mexico, a
+compass rose in the Atlantic, and lettered seas. As you zoom past about level 6 the illustration
+fades and the tint eases off, so by street level you are looking at the plain, accurate modern map
+of wherever you are standing. Creatures and lettering live in `data.js` under `LORE` and `LABELS`;
+their drawings are in the `ART` block at the top of `app.js`.
+
+**Fog stops at the coast.** It is clipped to a US outline (`OUTLINE` in `data.js`), so the Pacific,
+the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
+American ground is hidden. Travelling outside the US at local zoom restores ordinary fog everywhere.
+
+## Your travel path
+
+Everywhere you have physically moved is drawn as a faint red dashed line, over the cleared ground so
+it stays readable. **Expedition → Travel path** sets its opacity, or slides to zero to hide it.
+Jumps (teleporting in test mode) start a new line rather than drawing a straight streak across the
+country.
 
 ## Testing without walking
 
@@ -53,7 +74,7 @@ that carries you straight there — the fastest way to see discoveries fire.
 ## Adjustable in Expedition
 
 Trail clearing radius, arrival range (how close counts as reaching a city), the shift threshold,
-map style, and the discovery sound. Point clearing radius is gone — that is now derived from the
+travel-path opacity, map style, and the discovery sound. Point clearing radius is gone — that is now derived from the
 state split.
 
 ## Map styles

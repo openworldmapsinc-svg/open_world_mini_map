@@ -65,6 +65,78 @@ STATES: {
   WY:{name:'Wyoming',        bbox:[40.99,-111.06,45.01,-104.05]}
 },
 
+/* ── The bounds of the realms ───────────────────────────────────────
+   Coarse outline of US land, as [lng,lat] rings. Fog is clipped to
+   these shapes, so the oceans, Canada and Mexico are always visible.
+   Swap in a finer coastline any time — nothing else needs to change. */
+OUTLINE: [
+  [ /* the contiguous realms */
+    [-124.7,48.4],[-124.1,46.9],[-124.0,45.5],[-124.1,43.8],[-124.4,42.8],
+    [-124.2,41.0],[-123.8,39.8],[-122.9,38.9],[-122.5,37.8],[-121.9,36.9],
+    [-120.6,35.1],[-119.5,34.4],[-118.4,33.7],[-117.1,32.5],[-114.7,32.7],
+    [-114.8,31.9],[-111.0,31.3],[-108.2,31.3],[-108.2,31.8],[-106.5,31.8],
+    [-105.0,30.6],[-103.1,29.0],[-102.4,29.8],[-101.4,29.8],[-99.5,27.5],
+    [-97.2,25.9],[-97.4,27.0],[-96.4,28.4],[-95.0,29.1],[-93.8,29.7],
+    [-92.0,29.6],[-90.2,29.1],[-89.0,29.2],[-88.9,30.4],[-87.5,30.3],
+    [-86.0,30.4],[-84.3,30.0],[-83.6,29.9],[-82.9,29.0],[-82.7,27.9],
+    [-82.0,26.5],[-81.1,25.2],[-80.4,25.2],[-80.1,26.7],[-80.6,28.5],
+    [-81.2,29.8],[-80.9,32.0],[-79.2,33.2],[-77.9,34.0],[-75.8,35.2],
+    [-75.5,36.6],[-76.0,37.2],[-75.1,38.0],[-74.4,39.3],[-73.9,40.5],
+    [-72.0,41.0],[-70.0,41.6],[-70.7,42.7],[-70.0,43.6],[-69.0,44.0],
+    [-67.0,44.8],[-67.8,45.7],[-69.2,47.5],[-70.3,46.0],[-71.5,45.0],
+    [-74.7,45.0],[-76.9,44.0],[-79.0,43.3],[-82.5,41.7],[-83.1,42.3],
+    [-82.4,45.0],[-84.0,46.5],[-84.6,46.5],[-88.0,48.2],[-89.5,48.0],
+    [-95.2,49.0],[-104.0,49.0],[-116.0,49.0],[-123.0,49.0]
+  ],
+  [ /* the frozen northern wilds */
+    [-141.0,70.0],[-141.0,60.0],[-139.0,60.0],[-135.0,58.5],[-130.0,55.0],
+    [-133.0,55.6],[-138.0,58.6],[-148.0,59.5],[-153.0,57.0],[-158.0,55.2],
+    [-163.0,54.6],[-166.0,60.0],[-162.0,63.0],[-166.0,66.0],[-161.0,68.5],
+    [-156.0,71.4]
+  ],
+  [ /* the isle chain of fire */
+    [-160.3,22.3],[-154.7,22.3],[-154.7,18.8],[-160.3,18.8]
+  ]
+],
+
+/* ── Marginalia ────────────────────────────────────────────────────
+   Creatures and lettering drawn beyond the fog. kind must match a
+   glyph in app.js; size is roughly the height in pixels. */
+LORE: [
+  { kind:'hydra',   lat: 37.5, lng:-133.5, size:96 },
+  { kind:'kraken',  lat: 29.0, lng:-129.0, size:88 },
+  { kind:'ship',    lat: 45.5, lng:-133.0, size:62 },
+  { kind:'whale',   lat: 50.5, lng:-137.0, size:66 },
+  { kind:'serpent', lat: 24.0, lng:-124.0, size:92 },
+  { kind:'kraken',  lat: 33.5, lng: -67.0, size:88 },
+  { kind:'ship',    lat: 40.5, lng: -62.5, size:62 },
+  { kind:'serpent', lat: 27.5, lng: -71.5, size:92 },
+  { kind:'whale',   lat: 44.5, lng: -57.5, size:66 },
+  { kind:'compass', lat: 21.5, lng: -62.0, size:104 },
+  { kind:'serpent', lat: 24.5, lng: -90.0, size:80 },
+  { kind:'ship',    lat: 21.5, lng: -94.5, size:58 },
+  { kind:'yeti',    lat: 53.0, lng:-104.0, size:74 },
+  { kind:'yeti',    lat: 56.5, lng: -88.0, size:70 },
+  { kind:'pines',   lat: 51.5, lng:-118.0, size:56 },
+  { kind:'peaks',   lat: 54.5, lng:-122.0, size:58 },
+  { kind:'pines',   lat: 49.5, lng: -78.0, size:56 },
+  { kind:'dragon',  lat: 57.0, lng:-131.0, size:86 },
+  { kind:'volcano', lat: 19.5, lng:-102.5, size:66 },
+  { kind:'dragon',  lat: 25.5, lng:-107.5, size:86 },
+  { kind:'castle',  lat: 19.8, lng: -99.2, size:52 },
+  { kind:'peaks',   lat: 62.5, lng:-112.0, size:58 },
+  { kind:'volcano', lat: 19.4, lng:-155.3, size:54 }
+],
+
+LABELS: [
+  { text:'The Whispering Sea',      lat: 39.0, lng:-138.0, rot:-90, size:15 },
+  { text:'The Great Eastern Deep',  lat: 34.0, lng: -60.5, rot: -68, size:15 },
+  { text:'The Sunken Gulf',         lat: 25.6, lng: -87.5, rot:  0, size:13 },
+  { text:'Kingdoms of the Frozen North', lat: 58.5, lng:-100.0, rot:0, size:14 },
+  { text:'The Sunward Realms',      lat: 22.5, lng:-103.5, rot: 12, size:13 },
+  { text:'Here be Wanderers',       lat: 30.5, lng:-137.5, rot:-90, size:11 }
+],
+
 CITIES: [
   {n:'Gulf Shores',        s:'AL', lat:30.2460, lng:-87.7008},
   {n:'Birmingham',         s:'AL', lat:33.5186, lng:-86.8104},
