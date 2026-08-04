@@ -53,7 +53,7 @@ var cfg = Object.assign({}, DEFAULTS);
 var pois = [], reveals = [], trailCells = new Set(), areaCells = new Set();
 var setupDone = false;
 
-var map, tiles, fogCanvas, fctx, maskCanvas, mctx, cloudCanvas, cctx, landCanvas, lctx;
+var map, tiles, fogCanvas, fctx, maskCanvas, mctx, cloudCanvas, cctx, landCanvas, lctx, edgeCanvas, ectx;
 var noise = [], maskDirty = true, landDirty = true, rafId = null, lastFrame = 0;
 var canBlur = false;
 var youMarker, accCircle, poiLayer = {}, loreLayer = null, pathLines = [];
@@ -269,14 +269,27 @@ function initFog(){
   maskCanvas = document.createElement('canvas');  mctx = maskCanvas.getContext('2d');
   cloudCanvas = document.createElement('canvas'); cctx = cloudCanvas.getContext('2d');
   landCanvas = document.createElement('canvas');  lctx = landCanvas.getContext('2d');
+  edgeCanvas = document.createElement('canvas');  ectx = edgeCanvas.getContext('2d');
   try { fctx.filter = 'blur(2px)'; canBlur = fctx.filter !== 'none'; fctx.filter = 'none'; }
   catch(e){ canBlur = false; }
 
   noise = [
-    { img:makeNoise(256, 4, 4, 0.34, 300), scale:2.6, vx: 0.0042, vy:-0.0016, alpha:0.40 },
-    { img:makeNoise(256, 6, 4, 0.40, 340), scale:1.5, vx:-0.0068, vy: 0.0027, alpha:0.34 },
-    { img:makeNoise(256, 3, 3, 0.30, 260), scale:4.2, vx: 0.0019, vy: 0.0011, alpha:0.30 }
-  ].map(function(l){ l.pat = cctx.createPattern(l.img,'repeat'); return l; });
+    // tint      scale  drift          parallax  alpha  breathe  spin
+    { img:makeNoise(256, 3, 3, 0.30, 250), tint:'#080b12', scale:4.6, vx: 0.0016, vy: 0.0009, par:0.05, alpha:0.62, br:0.05, spin: 0.0000045 },
+    { img:makeNoise(256, 4, 4, 0.34, 300), tint:'#c3c9da', scale:2.7, vx: 0.0040, vy:-0.0015, par:0.10, alpha:0.34, br:0.09, spin:-0.0000030 },
+    { img:makeNoise(256, 6, 4, 0.40, 340), tint:'#dfe4f0', scale:1.5, vx:-0.0069, vy: 0.0026, par:0.17, alpha:0.26, br:0.12, spin: 0.0000062 },
+    { img:makeNoise(256, 5, 3, 0.44, 300), tint:'#0a0d15', scale:2.1, vx: 0.0028, vy: 0.0034, par:0.13, alpha:0.30, br:0.10, spin:-0.0000051 }
+  ].map(function(l){
+    var c = document.createElement('canvas');
+    c.width = c.height = l.img.width;
+    var x = c.getContext('2d');
+    x.drawImage(l.img,0,0);
+    x.globalCompositeOperation = 'source-in';   // colour the wisps, keep their shape
+    x.fillStyle = l.tint;
+    x.fillRect(0,0,c.width,c.height);
+    l.pat = cctx.createPattern(c,'repeat');
+    return l;
+  });
 
   map.on('move zoom viewreset resize moveend zoomend', function(){ maskDirty = true; landDirty = true; });
   startLoop();
@@ -292,8 +305,8 @@ function sizeCanvases(){
     fogCanvas.style.width = s.x+'px'; fogCanvas.style.height = s.y+'px';
     cloudCanvas.width  = Math.max(2, Math.round(s.x*0.5));
     cloudCanvas.height = Math.max(2, Math.round(s.y*0.5));
-    maskCanvas.width  = landCanvas.width  = Math.max(2, Math.round(s.x*MASK_SCALE));
-    maskCanvas.height = landCanvas.height = Math.max(2, Math.round(s.y*MASK_SCALE));
+    maskCanvas.width  = landCanvas.width  = edgeCanvas.width  = Math.max(2, Math.round(s.x*MASK_SCALE));
+    maskCanvas.height = landCanvas.height = edgeCanvas.height = Math.max(2, Math.round(s.y*MASK_SCALE));
     maskDirty = landDirty = true;
   }
   return { s:s, dpr:dpr };
@@ -392,6 +405,23 @@ function buildMask(now, dpr, size){
     mctx.fillStyle = '#fff';
   }
   maskDirty = animating;   // keep rebuilding while something is opening
+  buildEdge();
+}
+
+/* The band of fog just outside cleared ground. Lighting it makes the fog
+   read as a body with thickness rather than a flat sheet. */
+function buildEdge(){
+  if (!canBlur) return;
+  ectx.setTransform(1,0,0,1,0,0);
+  ectx.globalCompositeOperation = 'source-over';
+  ectx.globalAlpha = 1;
+  ectx.clearRect(0,0,edgeCanvas.width,edgeCanvas.height);
+  ectx.filter = 'blur(3px)';
+  ectx.drawImage(maskCanvas,0,0);
+  ectx.filter = 'none';
+  ectx.globalCompositeOperation = 'destination-out';
+  ectx.drawImage(maskCanvas,0,0);
+  ectx.globalCompositeOperation = 'source-over';
 }
 
 function renderFog(now){
@@ -399,25 +429,46 @@ function renderFog(now){
   var m = sizeCanvases(), size = m.s, dpr = m.dpr;
   L.DomUtil.setPosition(fogCanvas, map.containerPointToLayerPoint([0,0]));
 
-  // 1. drifting cloud bed (half resolution — it is soft anyway)
+  // 1. a living bed of cloud — layers drift, breathe, turn, and lag behind the map
   var cw = cloudCanvas.width, ch = cloudCanvas.height;
   cctx.setTransform(1,0,0,1,0,0);
   cctx.globalAlpha = 1;
+  cctx.globalCompositeOperation = 'source-over';
   cctx.fillStyle = '#141720';
   cctx.fillRect(0,0,cw,ch);
+
   var drift = reduceMotion ? 0 : now;
+  var org = map.getPixelOrigin();
+  var diag = Math.sqrt(cw*cw + ch*ch);
+
   for (var i=0;i<noise.length;i++){
     var l = noise[i];
-    var ox = (drift*l.vx) % (256*l.scale), oy = (drift*l.vy) % (256*l.scale);
+    var breathe = reduceMotion ? 1 : 1 + Math.sin(now/7000 + i*1.7)*l.br;
+    var sc = l.scale * 0.5 * breathe;
+    // the fog hangs above the world: it follows the map only partly
+    var px = -org.x * l.par * 0.5, py = -org.y * l.par * 0.5;
+    var ox = (drift*l.vx + px) % (256*sc);
+    var oy = (drift*l.vy + py) % (256*sc);
     cctx.save();
-    cctx.translate(ox, oy);
-    cctx.scale(l.scale*0.5, l.scale*0.5);
-    cctx.globalAlpha = l.alpha + (reduceMotion ? 0 : Math.sin(now/5200 + i)*0.05);
+    cctx.translate(cw/2, ch/2);
+    if (!reduceMotion) cctx.rotate(Math.sin(now*l.spin)*0.09);
+    cctx.translate(-cw/2 + ox, -ch/2 + oy);
+    cctx.scale(sc, sc);
+    cctx.globalAlpha = Math.max(0, l.alpha + (reduceMotion ? 0 : Math.sin(now/5200 + i*2.1)*0.06));
     cctx.fillStyle = l.pat;
-    cctx.fillRect(-ox/(l.scale*0.5) - 300, -oy/(l.scale*0.5) - 300,
-                  cw/(l.scale*0.5) + 600, ch/(l.scale*0.5) + 600);
+    var pad = diag/sc;
+    cctx.fillRect(-pad, -pad, pad*3, pad*3);
     cctx.restore();
   }
+
+  // depth: heavier below, light catching the tops
+  cctx.globalAlpha = 1;
+  var vg = cctx.createLinearGradient(0,0,0,ch);
+  vg.addColorStop(0,   'rgba(210,216,232,.10)');
+  vg.addColorStop(0.45,'rgba(0,0,0,0)');
+  vg.addColorStop(1,   'rgba(6,8,14,.34)');
+  cctx.fillStyle = vg;
+  cctx.fillRect(0,0,cw,ch);
 
   // 2. paint it across the viewport
   fctx.setTransform(1,0,0,1,0,0);
@@ -444,6 +495,14 @@ function renderFog(now){
   if (canBlur) fctx.filter = 'blur(' + Math.round(fogCanvas.width*0.008) + 'px)';
   fctx.drawImage(maskCanvas, 0, 0, fogCanvas.width, fogCanvas.height);
   fctx.filter = 'none';
+
+  // 5. light the curling edge so the fog has a body
+  if (canBlur){
+    fctx.globalCompositeOperation = 'source-atop';
+    fctx.globalAlpha = 0.5 + (reduceMotion ? 0 : Math.sin(now/2600)*0.09);
+    fctx.drawImage(edgeCanvas, 0, 0, fogCanvas.width, fogCanvas.height);
+    fctx.globalAlpha = 1;
+  }
   fctx.globalCompositeOperation = 'source-over';
 }
 
@@ -599,61 +658,52 @@ function playDiscovery(){
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   REALMS — the frame the map sits in
+   ═══════════════════════════════════════════════════════════════ */
+var REALMS = D.REALMS || {};
+var realm = null;
+
+function realmBounds(key){
+  var r = REALMS[key]; if (!r) return null;
+  return L.latLngBounds(r.bounds[0], r.bounds[1]);
+}
+function realmOf(lat,lng){
+  for (var k in REALMS) if (realmBounds(k).contains([lat,lng])) return k;
+  return null;
+}
+
+/* Zooming out stops exactly where the realm fills the screen, and the view
+   can never wander outside that frame. */
+function setRealm(key, move){
+  var b = realmBounds(key);
+  if (!b){                                   // somewhere beyond the charted realms
+    realm = null;
+    map.setMaxBounds(null); map.setMinZoom(MIN_ZOOM);
+    if ($('f-realm')) $('f-realm').value = '';
+    return;
+  }
+  realm = key;
+  map.setMaxBounds(null);
+  map.setMinZoom(MIN_ZOOM);
+  var fit = map.getBoundsZoom(b, false);     // the zoom at which the realm just fits
+  map.setMinZoom(fit);
+  map.setMaxBounds(b.pad(0.02));
+  if (move){
+    map.fitBounds(b, { animate:false });
+    anchor = map.getCenter();
+  } else if (map.getZoom() < fit){
+    map.setZoom(fit, { animate:false });
+  }
+  if ($('f-realm')) $('f-realm').value = key;
+  maskDirty = landDirty = true;
+  paintScale();
+}
+function reframeRealm(){ if (realm) setRealm(realm, false); }
+
+/* ═══════════════════════════════════════════════════════════════
    MARGINALIA — creatures and lettering for the world-scale chart
    ═══════════════════════════════════════════════════════════════ */
 var ART = {
-  serpent:
-    '<svg viewBox="0 0 150 62"><g class="ink">'+
-    '<path class="soft" d="M10 50C10 30 20 20 32 20c12 0 22 10 22 30h-10c0-14-5-20-12-20s-12 6-12 20z"/>'+
-    '<path class="soft" d="M56 50c0-18 10-28 22-28s22 10 22 28h-10c0-12-5-18-12-18s-12 6-12 18z"/>'+
-    '<path class="soft" d="M102 50c0-12 6-20 16-22 10-2 16-8 18-16l10 4c-4 12-14 20-26 22-6 1-8 6-8 12z"/>'+
-    '<path class="soft" d="M132 4c10-4 18 2 16 10-2 8-12 10-18 6l-10 4 4-9-6-7z"/>'+
-    '<circle cx="138" cy="12" r="2.2" class="fill"/>'+
-    '<path class="thin" d="M0 56c14 0 16-4 28-4M44 54c12 0 14 4 26 4M78 56c12 0 14-4 26-4M116 54c12 0 16 4 28 4"/>'+
-    '</g></svg>',
-  hydra:
-    '<svg viewBox="0 0 130 112"><g class="ink">'+
-    '<path class="soft" d="M28 100c0-14 16-22 36-22s36 8 36 22z"/>'+
-    '<path class="soft" d="M44 84C34 66 30 46 38 32l12 6c-6 14-4 30 6 46z"/>'+
-    '<path class="soft" d="M60 80c-2-22-2-42 2-58l12 2c-4 18-4 36-2 56z"/>'+
-    '<path class="soft" d="M82 84c10-16 14-34 8-48l-12 4c6 14 4 28-6 42z"/>'+
-    '<path class="soft" d="M34 30c-4-12 4-20 14-16l10-4-4 10 6 6H48c-4 6-10 8-14 4z"/>'+
-    '<path class="soft" d="M58 20c-2-12 8-18 16-12l10-2-6 9 4 7-12-2c-4 5-10 5-12 0z"/>'+
-    '<path class="soft" d="M86 34c-2-12 8-20 16-14l10-2-6 9 4 7-12-2c-4 6-10 6-12 2z"/>'+
-    '<circle cx="44" cy="20" r="2" class="fill"/><circle cx="68" cy="12" r="2" class="fill"/>'+
-    '<circle cx="96" cy="24" r="2" class="fill"/>'+
-    '<path class="thin" d="M2 104c16 0 18-4 30-4M96 100c14 0 16 4 30 4"/>'+
-    '</g></svg>',
-  kraken:
-    '<svg viewBox="0 0 130 100"><g class="ink">'+
-    '<path class="soft" d="M65 18c18 0 30 13 30 29 0 12-13 20-30 20S35 59 35 47c0-16 12-29 30-29z"/>'+
-    '<circle cx="53" cy="45" r="5.5"/><circle cx="77" cy="45" r="5.5"/>'+
-    '<circle cx="53" cy="45" r="2.2" class="fill"/><circle cx="77" cy="45" r="2.2" class="fill"/>'+
-    '<path class="soft" d="M40 58c-12 6-18 20-32 22-8 1-8-8 0-10 10-3 18-10 26-20z"/>'+
-    '<path class="soft" d="M50 65c-4 13-8 25-20 30l-4-8c8-5 12-15 16-27z"/>'+
-    '<path class="soft" d="M80 65c4 13 8 25 20 30l4-8c-8-5-12-15-16-27z"/>'+
-    '<path class="soft" d="M90 58c12 6 18 20 32 22 8 1 8-8 0-10-10-3-18-10-26-20z"/>'+
-    '<path class="soft" d="M65 67c3 12 2 21-3 30l10-1c3-11 2-19 1-29z"/>'+
-    '<path class="thin" d="M0 90c14 0 16-4 28-4M100 86c14 0 16 4 28 4"/>'+
-    '</g></svg>',
-  yeti:
-    '<svg viewBox="0 0 110 116"><g class="ink">'+
-    '<path class="soft" d="M55 6c12 0 19 9 17 21 12 4 20 13 24 25l10 14-10 2-4-8c1 14-4 26-12 32l4 18H72l-4-14'+
-    'c-4 2-8 3-13 3s-9-1-13-3l-4 14H26l4-18c-8-6-13-18-12-32l-4 8-10-2 10-14c4-12 12-21 24-25C36 15 43 6 55 6z"/>'+
-    '<path class="thin" d="M18 44l-7-5M23 34l-5-7M92 44l7-5M87 34l5-7M30 92l-6 6M80 92l6 6M40 62c6 8 24 8 30 0"/>'+
-    '<circle cx="46" cy="30" r="2.6" class="fill"/><circle cx="64" cy="30" r="2.6" class="fill"/>'+
-    '<path d="M47 42c5 4 11 4 16 0"/>'+
-    '</g></svg>',
-  dragon:
-    '<svg viewBox="0 0 140 96"><g class="ink">'+
-    '<path class="soft" d="M66 50c-8-4-14-14-12-24 1-6 6-6 9-2 4 6 5 16 7 22z"/>'+
-    '<path class="soft" d="M62 40C46 22 26 12 4 12c12 10 16 20 18 32 12-6 28-4 40 4z"/>'+
-    '<path class="soft" d="M78 40c16-18 36-28 58-28-12 10-16 20-18 32-12-6-28-4-40 4z"/>'+
-    '<path class="soft" d="M68 50c2 14 8 24 20 30 8 4 16 0 16-6-8 0-16-6-20-16z"/>'+
-    '<path class="soft" d="M74 30c8-10 20-8 22 0 2 8-6 12-12 10l-6 8-4-8-8-2z"/>'+
-    '<circle cx="86" cy="30" r="2" class="fill"/>'+
-    '<path class="thin" d="M100 76c8 2 14 0 18-6"/>'+
-    '</g></svg>',
   ship:
     '<svg viewBox="0 0 100 90"><g class="ink">'+
     '<path class="soft" d="M14 66h72l-10 14H24z"/><path d="M50 66V10"/>'+
@@ -698,6 +748,7 @@ var ART = {
     '<circle cx="60" cy="60" r="5" class="fill"/>'+
     '</g></svg>'
 };
+
 
 
 function buildLore(){
@@ -765,6 +816,75 @@ function drawPath(){
   });
 }
 
+/* ── The Cartographer's voice ─────────────────────────────────────
+   Short, dry, wordless. Synthesized so there are no audio files to ship. */
+function vocalize(kind){
+  if (!cfg.sound) return;
+  var ac = ensureAudio(); if (!ac) return;
+  var t0 = ac.currentTime + 0.03;
+  var out = ac.createGain(); out.gain.value = 0.85; out.connect(ac.destination);
+
+  // a throat: a resonant band that everything passes through
+  function throat(src, when, dur, f1, f2, level){
+    var b1 = ac.createBiquadFilter(); b1.type = 'bandpass'; b1.Q.value = 5.5; b1.frequency.value = f1;
+    var b2 = ac.createBiquadFilter(); b2.type = 'bandpass'; b2.Q.value = 7;   b2.frequency.value = f2;
+    var g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(level, when + dur*0.22);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    src.connect(b1); b1.connect(b2); b2.connect(g); g.connect(out);
+    return g;
+  }
+  function noiseSrc(dur){
+    var n = Math.floor(ac.sampleRate*dur), buf = ac.createBuffer(1,n,ac.sampleRate), ch = buf.getChannelData(0);
+    var last = 0;
+    for (var i=0;i<n;i++){ var w = Math.random()*2-1; last = 0.72*last + 0.28*w; ch[i] = last*1.5; }
+    var s = ac.createBufferSource(); s.buffer = buf; return s;
+  }
+
+  if (kind === 'clear'){                    // ahem
+    var s1 = noiseSrc(0.5);
+    throat(s1, t0, 0.16, 420, 1250, 0.22);
+    s1.start(t0); s1.stop(t0+0.2);
+    var o = ac.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(104, t0+0.16);
+    o.frequency.exponentialRampToValueAtTime(78, t0+0.42);
+    throat(o, t0+0.16, 0.3, 520, 1500, 0.2);
+    o.start(t0+0.16); o.stop(t0+0.5);
+
+  } else if (kind === 'cackle'){            // heh-heh-heh
+    for (var k=0;k<6;k++){
+      var when = t0 + k*0.115 + Math.random()*0.02;
+      var osc = ac.createOscillator(); osc.type = 'sawtooth';
+      var base = 190 - k*9 + (Math.random()*16-8);
+      osc.frequency.setValueAtTime(base*1.18, when);
+      osc.frequency.exponentialRampToValueAtTime(base, when+0.07);
+      throat(osc, when, 0.1, 620 + k*22, 1750 - k*40, 0.16);
+      osc.start(when); osc.stop(when+0.12);
+      var hs = noiseSrc(0.1);
+      throat(hs, when, 0.07, 900, 2100, 0.05);
+      hs.start(when); hs.stop(when+0.09);
+    }
+
+  } else {                                  // hmm — mouth closed, two slow steps
+    var m = ac.createOscillator(); m.type = 'sawtooth';
+    m.frequency.setValueAtTime(112, t0);
+    m.frequency.linearRampToValueAtTime(103, t0+0.34);
+    m.frequency.linearRampToValueAtTime(94, t0+0.78);
+    var vib = ac.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.2;
+    var vg = ac.createGain(); vg.gain.value = 2.4;
+    vib.connect(vg); vg.connect(m.frequency); vib.start(t0); vib.stop(t0+0.9);
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 620;
+    var g2 = ac.createGain();
+    g2.gain.setValueAtTime(0.0001, t0);
+    g2.gain.exponentialRampToValueAtTime(0.2, t0+0.14);
+    g2.gain.setValueAtTime(0.2, t0+0.5);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0+0.9);
+    m.connect(lp); lp.connect(g2); g2.connect(out);
+    m.start(t0); m.stop(t0+0.95);
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MAP
    ═══════════════════════════════════════════════════════════════ */
@@ -790,10 +910,11 @@ function buildMap(){
     setPlaceMode(false);
     addPoi(e.latlng.lat, e.latlng.lng);
   });
-  window.addEventListener('resize', function(){ maskDirty = landDirty = true; });
+  window.addEventListener('resize', function(){ maskDirty = landDirty = true; reframeRealm(); });
   window.addEventListener('orientationchange', function(){
-    setTimeout(function(){ maskDirty = landDirty = true; }, 350);
+    setTimeout(function(){ maskDirty = landDirty = true; reframeRealm(); }, 350);
   });
+  setRealm('us48', true);
 }
 
 /* Far out, the world is drawn as a chart of the realms. Close in, it is
@@ -866,6 +987,7 @@ function onPosition(lat,lng,acc){
   pos = { lat:lat, lng:lng, acc:acc };
 
   if (first){
+    setRealm(realmOf(lat,lng), false);
     anchor = L.latLng(lat,lng);
     map.setView(anchor, cfg.zoom || 13, { animate:false });
     applyEra(map.getZoom()); paintScale();
@@ -884,6 +1006,8 @@ function onPosition(lat,lng,acc){
     accCircle.setLatLng([lat,lng]).setRadius(acc||0);
   }
 
+  var here = realmOf(lat,lng);
+  if (here !== realm) setRealm(here, false);
   revealTrail(lat,lng);
   notePath(lat,lng);
   checkArrivals(lat,lng);
@@ -1067,6 +1191,69 @@ function paintSettings(){
   $('pad').classList.toggle('show', !!cfg.sim);
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   THE CARTOGRAPHER — portrait scenes between the questions
+   ═══════════════════════════════════════════════════════════════ */
+var typeTimer = null;
+
+function cartographer(lines, buttonText, kind, then){
+  var el = $('cart'), box = $('cart-box'), txt = $('cart-text'), btn = $('cart-next');
+  el.style.display = 'flex';
+  el.classList.remove('gone');
+  box.classList.remove('in'); void box.offsetWidth; box.classList.add('in');
+  vocalize(kind || (Math.random() < 0.5 ? 'hmm' : 'clear'));
+
+  var full = lines.join(' ');
+  txt.textContent = '';
+  btn.disabled = true;
+  btn.textContent = buttonText || 'Continue';
+  clearInterval(typeTimer);
+
+  var i = 0, delay = reduceMotion ? 0 : 18;
+  function finish(){ clearInterval(typeTimer); txt.textContent = full; btn.disabled = false; }
+  if (!delay) finish();
+  else typeTimer = setInterval(function(){
+    i += 1;
+    txt.textContent = full.slice(0,i);
+    if (i >= full.length) finish();
+  }, delay);
+
+  box.onclick = function(e){ if (e.target !== btn) finish(); };   // tap to skip the typing
+  btn.onclick = function(){
+    clearInterval(typeTimer);
+    el.classList.add('gone');
+    setTimeout(function(){ el.style.display = 'none'; el.classList.remove('gone'); }, 420);
+    if (then) then();
+  };
+}
+
+function introSequence(){
+  cartographer(
+    ['Greetings, adventurer.',
+     'Tell me — what have you seen of this world so far?'],
+    'Show him', null,
+    function(){ openSetup(); showStep(1); }
+  );
+}
+function secondQuestion(){
+  $('setup').style.display = 'none';
+  cartographer(
+    ['And tell me, adventurer —',
+     'what do you still want to see?'],
+    'Tell him', null,
+    function(){ $('setup').style.display = 'flex'; showStep(2); paintAdded(); }
+  );
+}
+function farewell(after){
+  $('setup').style.display = 'none';
+  cartographer(
+    ['Very good.', 'Good luck out there.'],
+    'Set out', 'cackle',
+    function(){ setTimeout(function(){ vocalize('cackle'); }, 120); after(); }
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════
    SETUP — the first conversation
    ═══════════════════════════════════════════════════════════════ */
@@ -1075,7 +1262,6 @@ var visited = {}, added = [];
 function openSetup(){
   $('setup').style.display = 'flex';
   paintSetupList();
-  showStep(1);
 }
 function showStep(n){
   $('step1').style.display = n === 1 ? 'flex' : 'none';
@@ -1239,20 +1425,18 @@ function stopSim(){
    ═══════════════════════════════════════════════════════════════ */
 function wire(){
   $('g-start').onclick = function(){
-    ensureAudio();
-    if (!setupDone) { hideGate(); openSetup(); }
-    else { hideGate(); beginTracking(); }
+    ensureAudio(); hideGate();
+    if (!setupDone) introSequence(); else beginTracking();
   };
   $('g-sim').onclick = function(){
-    ensureAudio(); cfg.sim = true;
-    if (!setupDone){ hideGate(); openSetup(); }
-    else { hideGate(); startSim(); }
+    ensureAudio(); cfg.sim = true; hideGate();
+    if (!setupDone) introSequence(); else startSim();
   };
 
   // setup wizard
   $('setup-search').oninput = paintSetupList;
-  $('s1-next').onclick = function(){ showStep(2); paintAdded(); };
-  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); showStep(2); paintAdded(); };
+  $('s1-next').onclick = function(){ secondQuestion(); };
+  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); secondQuestion(); };
   $('add-go').onclick = searchPlace;
   $('add-search').onkeydown = function(e){ if (e.key === 'Enter'){ e.preventDefault(); searchPlace(); } };
   $('add-coord').onclick = function(){
@@ -1265,9 +1449,11 @@ function wire(){
                  lat:parts[0], lng:parts[1], found:false });
     paintAdded();
   };
-  $('s2-done').onclick = finishSetup;
+  $('s2-done').onclick = function(){ farewell(finishSetup); };
 
   // HUD
+  $('f-realm').onchange = function(){ setRealm(this.value, true); this.blur(); };
+
   $('b-center').onclick = recenter;
   $('b-sheet').onclick  = function(){ openSheet(true); };
   $('b-drop').onclick   = function(){ setPlaceMode(!placeMode); };
@@ -1332,7 +1518,7 @@ function wire(){
   };
   $('a-redo').onclick = function(){
     visited = {}; pois.forEach(function(p){ if (p.found) visited[p.id] = true; });
-    openSheet(false); openSetup();
+    openSheet(false); introSequence();
   };
   $('a-reset').onclick = function(){
     if (!confirm('Let the fog return? Every charted mile is forgotten.')) return;

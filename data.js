@@ -99,33 +99,35 @@ OUTLINE: [
   ]
 ],
 
+/* ── Realms ────────────────────────────────────────────────────────
+   The frames the map can sit in. Zooming out stops exactly at the
+   active realm's frame, so the world always looks composed. */
+REALMS: {
+  us48: { name:'The Forty-Eight', bounds:[[24.2,-128.5],[50.2,-64.0]] },
+  ak:   { name:'Alaska',          bounds:[[52.5,-171.0],[71.6,-129.5]] },
+  hi:   { name:'Hawaii',          bounds:[[18.6,-160.8],[22.6,-154.5]] }
+},
+
 /* ── Marginalia ────────────────────────────────────────────────────
    Creatures and lettering drawn beyond the fog. kind must match a
    glyph in app.js; size is roughly the height in pixels. */
 LORE: [
-  { kind:'hydra',   lat: 37.5, lng:-133.5, size:96 },
-  { kind:'kraken',  lat: 29.0, lng:-129.0, size:88 },
-  { kind:'ship',    lat: 45.5, lng:-133.0, size:62 },
-  { kind:'whale',   lat: 50.5, lng:-137.0, size:66 },
-  { kind:'serpent', lat: 24.0, lng:-124.0, size:92 },
-  { kind:'kraken',  lat: 33.5, lng: -67.0, size:88 },
-  { kind:'ship',    lat: 40.5, lng: -62.5, size:62 },
-  { kind:'serpent', lat: 27.5, lng: -71.5, size:92 },
-  { kind:'whale',   lat: 44.5, lng: -57.5, size:66 },
+  { kind:'ship',    lat: 45.5, lng:-133.0, size:66 },
+  { kind:'ship',    lat: 30.0, lng:-129.5, size:58 },
   { kind:'compass', lat: 21.5, lng: -62.0, size:104 },
-  { kind:'serpent', lat: 24.5, lng: -90.0, size:80 },
+  { kind:'ship',    lat: 40.5, lng: -62.5, size:66 },
+  { kind:'ship',    lat: 27.0, lng: -70.5, size:58 },
   { kind:'ship',    lat: 21.5, lng: -94.5, size:58 },
-  { kind:'yeti',    lat: 53.0, lng:-104.0, size:74 },
-  { kind:'yeti',    lat: 56.5, lng: -88.0, size:70 },
   { kind:'pines',   lat: 51.5, lng:-118.0, size:56 },
-  { kind:'peaks',   lat: 54.5, lng:-122.0, size:58 },
-  { kind:'pines',   lat: 49.5, lng: -78.0, size:56 },
-  { kind:'dragon',  lat: 57.0, lng:-131.0, size:86 },
-  { kind:'volcano', lat: 19.5, lng:-102.5, size:66 },
-  { kind:'dragon',  lat: 25.5, lng:-107.5, size:86 },
+  { kind:'peaks',   lat: 54.0, lng:-122.5, size:60 },
+  { kind:'pines',   lat: 50.5, lng: -80.0, size:56 },
+  { kind:'peaks',   lat: 52.0, lng: -68.0, size:56 },
+  { kind:'pines',   lat: 53.0, lng:-100.0, size:52 },
+  { kind:'volcano', lat: 19.5, lng:-102.5, size:62 },
   { kind:'castle',  lat: 19.8, lng: -99.2, size:52 },
-  { kind:'peaks',   lat: 62.5, lng:-112.0, size:58 },
-  { kind:'volcano', lat: 19.4, lng:-155.3, size:54 }
+  { kind:'peaks',   lat: 25.5, lng:-106.5, size:56 },
+  { kind:'volcano', lat: 19.4, lng:-155.3, size:54 },
+  { kind:'peaks',   lat: 62.5, lng:-149.0, size:58 }
 ],
 
 LABELS: [
@@ -134,7 +136,7 @@ LABELS: [
   { text:'The Sunken Gulf',         lat: 25.6, lng: -87.5, rot:  0, size:13 },
   { text:'Kingdoms of the Frozen North', lat: 58.5, lng:-100.0, rot:0, size:14 },
   { text:'The Sunward Realms',      lat: 22.5, lng:-103.5, rot: 12, size:13 },
-  { text:'Here be Wanderers',       lat: 30.5, lng:-137.5, rot:-90, size:11 }
+  { text:'Charted by the Cartographer', lat: 30.5, lng:-137.5, rot:-90, size:11 }
 ],
 
 CITIES: [

@@ -227,6 +227,49 @@
   #pad button:active{background:rgba(217,180,92,.2)}
   #pad .sp{visibility:hidden}
 
+
+  /* ---------- realms ---------- */
+  #realmbar{left:calc(var(--safe-l) + 14px);bottom:calc(var(--safe-b) + 12px);z-index:800;
+    display:flex;align-items:center;gap:7px;opacity:.55;transition:opacity .25s}
+  #realmbar:hover,#realmbar:focus-within{opacity:1}
+  #realmbar label{font-family:var(--display);font-size:8px;letter-spacing:.24em;
+    text-transform:uppercase;color:var(--parchment-dim)}
+  #realmbar select{background:rgba(20,15,9,.7);border:1px solid rgba(217,180,92,.22);border-radius:2px;
+    color:var(--gold);font-family:var(--display);font-size:10px;letter-spacing:.12em;padding:5px 8px;
+    -webkit-appearance:none;appearance:none;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+
+  /* ---------- the cartographer ---------- */
+  #cart{z-index:1002;justify-content:flex-end;background:#070503;overflow:hidden}
+  #cart .portrait{position:absolute;inset:0}
+  #cart .portrait img{width:100%;height:100%;object-fit:cover;object-position:center 22%;
+    animation:breathe 22s ease-in-out infinite alternate;user-select:none;-webkit-user-drag:none}
+  #cart .portrait:after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(120% 70% at 50% 26%,rgba(0,0,0,0) 30%,rgba(7,5,3,.55) 78%,rgba(7,5,3,.92) 100%),
+      linear-gradient(180deg,rgba(7,5,3,.35),rgba(7,5,3,0) 26%,rgba(7,5,3,.55) 72%,rgba(7,5,3,.96))}
+  @keyframes breathe{from{transform:scale(1.03) translateY(0)}to{transform:scale(1.09) translateY(-1.5%)}}
+
+  #cart .dbox{position:relative;z-index:2;margin:0 calc(16px + var(--safe-l))
+    calc(24px + var(--safe-b)) calc(16px + var(--safe-r));padding:16px 18px 18px;
+    background:linear-gradient(180deg,rgba(28,21,12,.95),rgba(12,9,5,.97));
+    border:1px solid var(--rule);border-radius:3px;
+    box-shadow:0 18px 60px rgba(0,0,0,.8),inset 0 1px 0 rgba(240,221,164,.1);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);cursor:pointer}
+  #cart .dbox.in{animation:dbox .5s cubic-bezier(.2,.9,.25,1)}
+  @keyframes dbox{
+    0%{opacity:0;transform:translateY(22px) scaleY(.86);transform-origin:bottom}
+    55%{opacity:1;transform:translateY(0) scaleY(1.03)}
+    100%{opacity:1;transform:none}}
+  #cart .who{font-family:var(--display);font-size:9px;letter-spacing:.36em;text-transform:uppercase;
+    color:var(--gold);margin-bottom:9px}
+  #cart .who:after{content:"";display:block;height:1px;margin-top:8px;
+    background:linear-gradient(90deg,var(--gold-deep),rgba(217,180,92,.04))}
+  #cart .say{font-family:var(--body);font-size:clamp(17px,4.8vw,21px);line-height:1.6;
+    color:var(--parchment);min-height:3.2em}
+  #cart .say:after{content:"\258c";color:var(--gold);animation:blink 1s steps(2) infinite;margin-left:2px}
+  @keyframes blink{50%{opacity:0}}
+  #cart #cart-next{margin-top:14px;width:100%;padding:13px}
+  #cart #cart-next:disabled{opacity:.35}
+
   /* ---------- gate + setup ---------- */
   .veil{position:absolute;inset:0;z-index:1000;display:flex;flex-direction:column;
     background:radial-gradient(120% 78% at 50% 6%,#241b10,#0a0704 68%);transition:opacity .55s}
@@ -352,6 +395,15 @@
   <span class="sp"></span><button data-dir="s">▼</button><span class="sp"></span>
 </div>
 
+<div class="hud" id="realmbar">
+  <label for="f-realm">Realms</label>
+  <select id="f-realm">
+    <option value="us48">The Forty-Eight</option>
+    <option value="ak">Alaska</option>
+    <option value="hi">Hawaii</option>
+  </select>
+</div>
+
 <div id="toast"></div>
 <div id="scrim"></div>
 
@@ -426,6 +478,15 @@
   <button class="go" id="g-start">Set out</button>
   <button class="alt" id="g-sim">Explore without GPS</button>
   <div id="g-err"></div>
+</div>
+
+<div class="veil" id="cart" style="display:none">
+  <div class="portrait"><img src="cartographer.jpg" alt="The Cartographer" draggable="false"></div>
+  <div class="dbox" id="cart-box">
+    <div class="who">The Cartographer</div>
+    <div class="say" id="cart-text"></div>
+    <button class="go" id="cart-next">Continue</button>
+  </div>
 </div>
 
 <div class="veil" id="setup">

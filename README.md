@@ -6,23 +6,36 @@ The real world under fog. Travel it, and the map remembers.
 
 | File | Purpose |
 |---|---|
-| `index.html` | Shell — markup, art direction, HUD, zoom rail, setup screens |
+| `index.html` | Shell — markup, art direction, HUD, cartographer scene, setup screens |
 | `data.js` | The 130 default cities by state, state extents, US outline, creatures and sea lettering |
 | `app.js` | Fog engine, region unfogging, GPS, audio, wizard |
 | `manifest.json` | Home-screen install metadata |
 | `sw.js` | Caches the app and every tile you've loaded |
+| `cartographer.jpg` | The Cartographer's portrait |
 | `icon.svg`, `icon-180/192/512.png`, `icon-maskable-512.png` | App icons |
 
-All eleven files go in the repo root. No build step.
+All twelve files go in the repo root. No build step.
 
 ## First run
 
-A title card, then the Cartographer asks two questions: which of the cities you have already
-seen, and what else you want on the map. Checked cities are unfogged immediately and silently.
-Added places are searched through OpenStreetMap's Nominatim service, or entered as coordinates.
-You can reopen both questions any time from **Expedition → Revisit the questions**.
+A title card, then the Cartographer himself. He appears in portrait with a dialogue box that
+animates up and types his line out; each appearance is announced by a short wordless vocalization
+(a throat clear or an "hmm", synthesized, no audio files). **Continue** hands off to the answer
+screen. After the first answer the scene cuts back to him for the second question, and after the
+last one he says *"Very good. Good luck out there."* and cackles before the world opens.
+
+The two questions are the same as before: which cities you have already seen, and what else you
+want on the map. Checked cities are unfogged immediately and silently. Added places are searched
+through OpenStreetMap's Nominatim service, or entered as coordinates. Tapping the dialogue box
+skips the typing. You can reopen the whole sequence from **Expedition → Revisit the questions**.
 
 ## How the fog clears
+
+The fog is a living body rather than a flat sheet: four layers of tileable noise, two lit and two
+shadowed, drift at different speeds, turn slowly, breathe in and out, and lag behind the map as you
+move so they read as hanging above the world rather than pinned to it. A vertical gradient weights
+it heavier below, and the fog rim just outside cleared ground is lit so the edge looks like it has
+thickness.
 
 **Travelling** clears a soft circle around you as you move (trail clearing, default 150 m).
 
@@ -37,21 +50,29 @@ State shapes are rectangles for now. To use true outlines, define `window.OW_STA
 `{ CA: [[[lng,lat], ...]], ... }` before `app.js` loads — the region builder will clip to the
 polygon automatically, no other change needed.
 
-## Zoom
+## Zoom and realms
 
-**Pinch to zoom**, from roughly **100 feet across** to the **whole United States** (zoom 3–21),
-continuously. Scroll wheel and double-tap work too. The **Span** reading in the crest is the width
-of the short edge of the screen. Whatever the scale, the view recenters on you when you reach 70%
-of the way to the edge.
+**Pinch to zoom**, from roughly **100 feet across** out to the framed realm. Scroll wheel and
+double-tap work too. The **Span** reading in the crest is the width of the short edge of the screen.
+Whatever the scale, the view recenters on you when you reach 70% of the way to the edge.
+
+Zooming out stops at a **hard boundary** that frames the continental United States with the Pacific,
+the Atlantic, Canada and Mexico around it — you cannot pull back past the frame or drift outside it.
+
+Because that frame excludes them, Alaska and Hawaii have their own frames. The faint **Realms**
+picker in the bottom-left corner switches between *The Forty-Eight*, *Alaska* and *Hawaii*; each has
+its own zoom-out limit and boundary. The app also switches automatically to whichever realm you are
+standing in. Frames are defined in `REALMS` in `data.js`.
 
 ## Two maps in one
 
-Zoomed out, the country is drawn as a chart of the realms: heavy parchment tint, sea serpents and
-krakens in the oceans, yeti and pine wilds across Canada, dragons and a volcano over Mexico, a
-compass rose in the Atlantic, and lettered seas. As you zoom past about level 6 the illustration
-fades and the tint eases off, so by street level you are looking at the plain, accurate modern map
-of wherever you are standing. Creatures and lettering live in `data.js` under `LORE` and `LABELS`;
-their drawings are in the `ART` block at the top of `app.js`.
+Zoomed out, the country is drawn as an old chart: heavy parchment tint, sailing ships in the
+oceans, mountain and pine wilds across Canada, a volcano and a castle over Mexico, a compass rose in
+the Atlantic, and lettered seas. The monsters are gone — no hydras, no yeti — leaving the classic
+cartographic marginalia. As you zoom past about level 6 the illustration fades and the tint eases
+off, so by street level you are looking at the plain, accurate modern map of wherever you are
+standing. Marginalia and lettering live in `data.js` under `LORE` and `LABELS`; their drawings are
+in the `ART` block at the top of `app.js`.
 
 **Fog stops at the coast.** It is clipped to a US outline (`OUTLINE` in `data.js`), so the Pacific,
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
