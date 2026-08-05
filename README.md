@@ -47,7 +47,7 @@ wind cue underneath it, and then the view drops back to where you are standing. 
 arrivals queue and play one after another, and nothing starts while you have the atlas, the settings
 or the Cartographer open — a held discovery waits until you are back on the map.
 
-Reaching a city clears **35 miles in every direction from wherever you were standing** when it
+Reaching a city clears **100 miles in every direction from wherever you were standing** when it
 triggered — not from the city's own coordinates. When every city in a state has been reached, that
 whole state falls open at once. Each state is divided among its
 cities by proximity: every point in the state belongs to whichever city is nearest. So in
@@ -94,7 +94,7 @@ American ground is hidden. Travelling outside the US at local zoom restores ordi
 Forty-eight places are hidden in the data and never appear in the atlas, the setup questions or any
 count — you find them only by wandering close enough. A secret announces itself as **Secret
 Discovered** in red rather than gold, names the town it hides in, plays a colder minor chord, drops a
-castle marker instead of a star, and clears **10 miles**. Secrets never count toward opening a state.
+castle marker instead of a star, and clears **50 miles**. Secrets never count toward opening a state.
 
 For testing, the red **+** below the gold one hides a secret wherever you tap.
 
