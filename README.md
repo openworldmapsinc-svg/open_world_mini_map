@@ -71,7 +71,7 @@ There is no free zoom. The map has exactly three states, and pinching steps one 
 
 - **Local** — centred on you, half a mile in every direction. The fog is slightly translucent here,
   so you can just make out the streets beneath it.
-- **Region** — fifty miles in every direction: a hundred miles across the short edge of the screen.
+- **Region** — thirty-five miles in every direction: seventy miles across the short edge of the screen.
   This is the road-trip view, far enough to see a day's driving and how much ground it opened, close
   enough that the cleared corridor still reads. The walked corridor is held to a minimum thread
   width so it never disappears at distance.
@@ -132,8 +132,9 @@ country.
 
 ## Testing without walking
 
-**Expedition → Travel by d-pad, not GPS.** Arrow keys or WASD; hold Shift to ride hard. Speed
-scales with the current zoom, so crossing the country at country scale takes about as long as
+**Expedition → Travel by d-pad, not GPS.** Arrow keys or WASD; hold Shift to ride hard. A discovery
+brings you to a halt — you keep moving only once you press a direction again, so a ceremony never
+plays out while you are still barrelling across the map. Speed scales with the current zoom, so crossing the country at country scale takes about as long as
 crossing a block at street scale. In this mode every row in the atlas gets a **Travel** button
 that carries you straight there — the fastest way to see discoveries fire.
 

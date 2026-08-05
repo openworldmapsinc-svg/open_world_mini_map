@@ -13,7 +13,7 @@ var STORE  = 'openworld.v2';
 var DEFAULTS = {
   revealRadiusM : 150,    // fog cleared as you travel
   arrivalRadiusM: 4000,   // how close counts as arriving at a city
-  shiftThreshold: 0.70,   // recenter when you pass this much of the view
+  shiftThreshold: 0.85,   // recenter when you pass this much of the view
   maxAccuracyM  : 150,
   pathOpacity   : 0.4,    // faint red trail; 0 hides it
   style         : 'night',
@@ -52,7 +52,7 @@ var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what soft
 /* Three steps, closest first. Local is where you are standing, region is the
    day's travelling, world is the framed realm. */
 var VIEW_ORDER  = ['local','region','world'];
-var VIEW_MILES  = { local:0.5, region:50 };
+var VIEW_MILES  = { local:0.5, region:35 };
 var FOG_BY_VIEW = { local:0.86, region:0.93, world:1 };
 var TINT_FULL = 5.6;   // below this zoom the chart is fully aged
 var TINT_GONE = 8.2;   // above this the tint is gone
@@ -72,6 +72,7 @@ var youMarker, accCircle, poiLayer = {}, pathLines = [];
 var path = [];                    // array of segments, each an array of [lat,lng]
 var pos = null, anchor = null, watchId = null;
 var simPos = null, simVec = {x:0,y:0}, simSprint = false, simTimer = null;
+var simHalted = false;       // a discovery stops the reins until you take them again
 var placeMode = false, saveTimer = null, wakeLock = null;
 var view = 'world';          // 'local', 'region' or 'world'
 var panned = false;          // the traveller has moved the camera by hand
@@ -1165,6 +1166,8 @@ function uiBusy(){
 var discoveryQueue = [];
 
 function discover(p, atLat, atLng){
+  // whatever you were doing, you have arrived — the reins drop
+  simVec = {x:0, y:0}; simHalted = true;
   p.found = true;
   p.at = (atLat != null) ? [r4(atLat), r4(atLng)] : null;
   save(); paintStats(); paintList();
@@ -1891,7 +1894,7 @@ function wire(){
   // d-pad + keys
   var dirs = { n:{x:0,y:1}, s:{x:0,y:-1}, e:{x:1,y:0}, w:{x:-1,y:0}, stop:{x:0,y:0} };
   Array.prototype.forEach.call(document.querySelectorAll('#pad button'), function(b){
-    b.onclick = function(){ simVec = Object.assign({}, dirs[b.dataset.dir]); };
+    b.onclick = function(){ simHalted = false; simVec = Object.assign({}, dirs[b.dataset.dir]); };
   });
   var keymap = { ArrowUp:'n', ArrowDown:'s', ArrowLeft:'w', ArrowRight:'e',
                  w:'n', s:'s', a:'w', d:'e', W:'n', S:'s', A:'w', D:'e' };
@@ -1908,7 +1911,11 @@ function wire(){
     if (typingInto(e) || uiBusy()) return;
     if (e.key === 'Shift') simSprint = true;
     if (!cfg.sim || !keymap[e.key]) return;
-    e.preventDefault(); simVec = Object.assign({}, dirs[keymap[e.key]]);
+    e.preventDefault();
+    // a held key repeats; only a fresh press picks the reins back up
+    if (simHalted && e.repeat) return;
+    simHalted = false;
+    simVec = Object.assign({}, dirs[keymap[e.key]]);
   });
   window.addEventListener('keyup', function(e){
     if (typingInto(e)) return;
