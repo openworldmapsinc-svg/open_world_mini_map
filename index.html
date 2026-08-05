@@ -130,6 +130,10 @@
     backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:transform .12s,color .2s}
   .btn:active{transform:scale(.93)}
   .btn.on{color:var(--seal);border-color:var(--gold)}
+  .btn.adrift{color:var(--gold-pale);border-color:var(--gold);
+    box-shadow:0 8px 30px rgba(0,0,0,.6),0 0 0 1px rgba(217,180,92,.35),
+      inset 0 1px 0 rgba(240,221,164,.12);animation:adrift 2.4s ease-in-out infinite}
+  @keyframes adrift{50%{border-color:rgba(217,180,92,.35)}}
   .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .stack{display:flex;flex-direction:column;gap:9px}
 
@@ -387,7 +391,7 @@
       <div><div class="k">Charted</div><div class="v" id="s-area">0 <small>mi²</small></div></div>
       <div><div class="k">Cities</div><div class="v" id="s-poi">0 / 0</div></div>
       <div><div class="k">Signal</div><div class="v" id="s-acc">—</div></div>
-      <div><div class="k">Span</div><div class="v" id="scale-val">—</div></div>
+      <div><div class="k" id="scale-view">local</div><div class="v" id="scale-val">—</div></div>
     </div>
   </div>
   <div class="stack">
@@ -454,7 +458,7 @@
     <div id="poi-list"></div>
     <button class="act" id="a-add-here">Mark where I stand</button>
     <button class="act" id="a-add-coord">Mark by coordinates</button>
-    <div class="note">The red + hides a secret for testing. Pinch open for the local view, pinch closed for the world map — those are the only two. Use + on the map to mark a place by touch. A city stays unseen until you come
+    <div class="note">Three views: pinch open or closed to step between local (½ mile), region (50 miles) and the framed realm. Drag to move the camera in the first two; the compass button brings it back to you, then steps you closer. The red + hides a secret for testing. Use + on the map to mark a place by touch. A city stays unseen until you come
       within arrival range, then it clears its share of the state.</div>
   </div>
 

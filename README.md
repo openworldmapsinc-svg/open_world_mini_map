@@ -65,18 +65,26 @@ State shapes are rectangles for now. To use true outlines, define `window.OW_STA
 `{ CA: [[[lng,lat], ...]], ... }` before `app.js` loads — the region builder will clip to the
 polygon automatically, no other change needed.
 
-## Two views, and realms
+## Three views, and realms
 
-There is no free zoom. The map has exactly two states:
+There is no free zoom. The map has exactly three states, and pinching steps one rung at a time:
 
-- **Local view** — centred on you, half a mile in every direction. The fog here is slightly
-  translucent, so you can just make out the streets beneath it.
-- **World view** — the framed continental United States, with the Pacific, the Atlantic, Canada and
-  Mexico around it. The fog is fully opaque, and the frame is a hard boundary you cannot pull back
-  past or drift outside of.
+- **Local** — centred on you, half a mile in every direction. The fog is slightly translucent here,
+  so you can just make out the streets beneath it.
+- **Region** — fifty miles in every direction: a hundred miles across the short edge of the screen.
+  This is the road-trip view, far enough to see a day's driving and how much ground it opened, close
+  enough that the cleared corridor still reads. The walked corridor is held to a minimum thread
+  width so it never disappears at distance.
+- **World** — the framed continental United States, with the Pacific, the Atlantic, Canada and
+  Mexico around it. Fog is fully opaque and the frame is a hard boundary you cannot pull back past.
 
-Pinch open for local, pinch closed for world. Scroll wheel and double-tap toggle as well. In local
-view the map follows you, shifting when you reach 70% of the way to the edge.
+Scroll wheel steps too, and double-tap draws you in a rung (wrapping back to world from local).
+
+**The camera is yours** in local and region view: drag to look around. While you have moved it by
+hand the map stops following you and the compass button pulses. Press it once to bring the camera
+back to you, press again to step closer. In world view dragging is off — the frame is the frame.
+
+Which view you were in is remembered between sessions, and a discovery ceremony returns you to it.
 
 Because the world frame excludes them, Alaska and Hawaii have their own frames. The faint **Realms**
 picker in the bottom-left corner switches between *The Forty-Eight*, *Alaska* and *Hawaii*; each has

@@ -49,11 +49,14 @@ var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
 /* Circles are free to run over towns nobody has reached yet — that is how
    you learn a place is there. */
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
-var LOCAL_MILES = 0.5; // local view shows half a mile in every direction
+/* Three steps, closest first. Local is where you are standing, region is the
+   day's travelling, world is the framed realm. */
+var VIEW_ORDER  = ['local','region','world'];
+var VIEW_MILES  = { local:0.5, region:50 };
+var FOG_BY_VIEW = { local:0.86, region:0.93, world:1 };
 var TINT_FULL = 5.6;   // below this zoom the chart is fully aged
 var TINT_GONE = 8.2;   // above this the tint is gone
-var FOG_LOCAL = 0.86;  // fog is faintly translucent up close
-var FOG_WORLD = 1;
+
 
 /* ═══════════════════════════════════════════════════════════════
    STATE
@@ -70,7 +73,8 @@ var path = [];                    // array of segments, each an array of [lat,ln
 var pos = null, anchor = null, watchId = null;
 var simPos = null, simVec = {x:0,y:0}, simSprint = false, simTimer = null;
 var placeMode = false, saveTimer = null, wakeLock = null;
-var view = 'world';          // 'world' or 'local' — the only two states
+var view = 'world';          // 'local', 'region' or 'world'
+var panned = false;          // the traveller has moved the camera by hand
 var ceremony = false;        // a discovery is playing out
 var gust = 0, gustAt = 0;    // wind blowing the fog aside
 var parX = null, parY = null; // eased parallax reference
@@ -438,6 +442,9 @@ function buildMask(now, dpr, size){
     }
     var p = map.latLngToContainerPoint([rv.lat, rv.lng]);
     var px = rr/m;
+    // a walked corridor is a few hundred metres wide — at fifty miles out that
+    // is a third of a pixel, so hold it to a visible thread instead
+    if (rv.t === 't') px = Math.max(px, 4);
     if (px < 0.4) continue;
     p.x += px*sway; p.y -= px*lift;
     var g = mctx.createRadialGradient(p.x,p.y,px*0.45, p.x,p.y,px*0.94);
@@ -774,51 +781,69 @@ function setRealm(key, move){
 function reframeRealm(){
   if (!realm) return;
   setRealm(realm, false);
-  if (view === 'world') setWorldView(false); else setLocalView(false);
+  setViewState(view, false);
 }
 
 /* ── The two views ───────────────────────────────────────────────
    There is no free zoom. Pinch open for the local view — half a mile
    in every direction around you — and pinch closed for the framed
    world map. Nothing in between. */
-function localZoom(lat){
+function viewZoom(name, lat){
   var s = map.getSize();
   var half = Math.max(80, Math.min(s.x, s.y)/2);
-  var target = MILE*LOCAL_MILES/half;                       // desired metres per pixel
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM,
+  var target = MILE*(VIEW_MILES[name] || 0.5)/half;          // metres per pixel
+  return Math.max(map.getMinZoom(), Math.min(MAX_ZOOM,
     Math.log2(156543.03392*Math.cos(lat*Math.PI/180)/target)));
 }
 
-function setLocalView(animate){
+function setViewState(name, animate){
+  if (name === 'world'){
+    view = 'world'; panned = false; cfg.view = 'world'; save();
+    var b = realmBounds(realm || 'us48');
+    if (b){
+      if (animate) map.flyToBounds(b, { duration:1.1, easeLinearity:.28 });
+      else map.fitBounds(b, { animate:false });
+      anchor = b.getCenter();
+    }
+    applyViewState();
+    return true;
+  }
   if (!pos) return false;
-  view = 'local'; cfg.view = 'local'; save();
+  view = name; panned = false; cfg.view = name; save();
   anchor = L.latLng(pos.lat, pos.lng);
-  var z = localZoom(pos.lat);
-  if (animate) map.flyTo(anchor, z, { duration:1.1, easeLinearity:.28 });
+  var z = viewZoom(name, pos.lat);
+  if (animate) map.flyTo(anchor, z, { duration:1.0, easeLinearity:.28 });
   else map.setView(anchor, z, { animate:false });
   applyViewState();
   return true;
 }
 
-function setWorldView(animate){
-  view = 'world'; cfg.view = 'world'; save();
-  var b = realmBounds(realm || 'us48');
-  if (b){
-    if (animate) map.flyToBounds(b, { duration:1.1, easeLinearity:.28 });
-    else map.fitBounds(b, { animate:false });
-    anchor = b.getCenter();
-  }
-  applyViewState();
+function setLocalView(animate){ return setViewState('local', animate); }
+function setWorldView(animate){ return setViewState('world', animate); }
+
+/* Pinching walks one step along the chain rather than jumping to an end. */
+function stepView(dir, animate){
+  var i = VIEW_ORDER.indexOf(view);
+  var next = VIEW_ORDER[Math.max(0, Math.min(VIEW_ORDER.length-1, i + dir))];
+  if (next === view) return;
+  if (!setViewState(next, animate !== false) && next !== 'world')
+    toast('Waiting to find you.');
 }
 
-function toggleView(){
-  if (view === 'world') { if (!setLocalView(true)) toast('Waiting to find you.'); }
-  else setWorldView(true);
+function toggleView(){                     // double tap draws you in a step
+  if (view === 'local') setWorldView(true);
+  else stepView(-1, true);
 }
 
 function applyViewState(){
-  if (fogCanvas) fogCanvas.style.opacity = view === 'local' ? FOG_LOCAL : FOG_WORLD;
+  if (fogCanvas) fogCanvas.style.opacity = FOG_BY_VIEW[view] != null ? FOG_BY_VIEW[view] : 1;
   document.body.classList.toggle('view-local', view === 'local');
+  document.body.classList.toggle('view-world', view === 'world');
+  // the camera is yours to move except when the whole realm is framed
+  if (map.dragging){
+    if (view === 'world') map.dragging.disable(); else map.dragging.enable();
+  }
+  $('b-center').classList.toggle('adrift', panned);
   maskDirty = landDirty = true;
   paintScale();
 }
@@ -839,8 +864,8 @@ function bindViewGestures(){
     var dx = e.touches[0].clientX - e.touches[1].clientX;
     var dy = e.touches[0].clientY - e.touches[1].clientY;
     var ratio = Math.hypot(dx,dy)/start;
-    if (ratio > 1.22){ fired = true; if (view !== 'local') setLocalView(true); }
-    else if (ratio < 0.82){ fired = true; if (view !== 'world') setWorldView(true); }
+    if (ratio > 1.22){ fired = true; stepView(-1); }
+    else if (ratio < 0.82){ fired = true; stepView(1); }
   }, { passive:true });
 
   el.addEventListener('touchend', function(){ start = 0; }, { passive:true });
@@ -851,8 +876,7 @@ function bindViewGestures(){
     var now = Date.now();
     if (now - wheelLock < 900) return;
     wheelLock = now;
-    if (e.deltaY < 0){ if (view !== 'local') setLocalView(true); }
-    else if (view !== 'world') setWorldView(true);
+    if (e.deltaY < 0) stepView(-1); else stepView(1);
   }, { passive:false });
 
   var lastTap = 0;
@@ -997,6 +1021,7 @@ function buildMap(){
   map.on('zoom', function(){ applyEra(map.getZoom()); paintScale(); });
   map.on('zoomend', function(){ cfg.zoom = map.getZoom(); save(); applyEra(map.getZoom()); paintScale(); });
   map.on('move', paintScale);
+  map.on('dragstart', function(){ panned = true; $('b-center').classList.add('adrift'); });
   map.on('click', function(e){
     if (!placeMode) return;
     var kind = placeMode;
@@ -1052,10 +1077,12 @@ function paintScale(){
   else if (across < 16093) txt = (across/MILE).toFixed(1) + ' mi';
   else txt = Math.round(across/MILE) + ' mi';
   $('scale-val').textContent = txt;
+  var lab = $('scale-view');
+  if (lab) lab.textContent = view === 'world' ? 'realm' : view === 'region' ? 'region' : 'local';
 }
 
 function shiftWindow(lat,lng){
-  if (view !== 'local' || ceremony) return;
+  if (view === 'world' || ceremony || panned) return;   // hands off while they are looking around
   var p = L.latLng(lat,lng);
   if (!anchor || p.distanceTo(anchor) > viewHalfMeters()*cfg.shiftThreshold){
     anchor = p;
@@ -1064,7 +1091,16 @@ function shiftWindow(lat,lng){
 }
 function recenter(){
   if (!pos) return;
-  if (view !== 'local'){ setLocalView(true); return; }
+  if (panned){                            // first press brings the camera back
+    panned = false;
+    $('b-center').classList.remove('adrift');
+    anchor = L.latLng(pos.lat, pos.lng);
+    map.flyTo(anchor, map.getZoom(), { duration:.7 });
+    maskDirty = true;
+    return;
+  }
+  if (view === 'world'){ setViewState('region', true); return; }
+  if (view === 'region'){ setLocalView(true); return; }
   anchor = L.latLng(pos.lat,pos.lng);
   map.setView(anchor, map.getZoom(), { animate:true, duration:0.6 });
   maskDirty = true;
@@ -1080,7 +1116,7 @@ function onPosition(lat,lng,acc){
   if (first){
     setRealm(realmOf(lat,lng), false);
     anchor = L.latLng(lat,lng);
-    if (cfg.view === 'world') setWorldView(false); else setLocalView(false);
+    setViewState(VIEW_ORDER.indexOf(cfg.view) >= 0 ? cfg.view : 'local', false);
     applyEra(map.getZoom()); paintScale();
     hideGate();
   }
@@ -1146,7 +1182,7 @@ function runCeremony(){
   var p = discoveryQueue.shift();
   if (!p){ ceremony = false; return; }
   ceremony = true;
-  var wasLocal = (view === 'local');
+  var back = (view === 'world') ? 'region' : view;
 
   setWorldView(true);                       // 1. pull back
 
@@ -1165,7 +1201,7 @@ function runCeremony(){
   setTimeout(function(){                    // 4. back to the traveller
     if (discoveryQueue.length){ runCeremony(); return; }
     ceremony = false;
-    if (wasLocal || pos) setLocalView(true);
+    if (pos) setViewState(back, true);
   }, 6200);
 }
 
