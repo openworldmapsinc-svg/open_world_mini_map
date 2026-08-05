@@ -96,18 +96,15 @@ American ground is hidden. Travelling outside the US at local zoom restores ordi
 
 ## Towns
 
-Every city carries a town icon that lives **beneath the fog**, so you see it only once its ground is
-clear. An unreached town is **ghosted** — grey, dim, unlit windows. A town you have reached is
-**illuminated** in gold, with a pennant flying and the lamps on, and it kindles to life the moment
-you arrive.
+Every city sits **beneath the fog**, so you see it only once its ground is clear. An unreached place
+is nothing more than a **pale dot** — no name, no detail, just a mark that something is there. Reach
+it and it becomes a **lit town**: gold, lamps burning, a pennant on the tower, its name lettered
+underneath. It kindles to life the moment you arrive.
 
 This makes a discovery worth more than the ground it clears. Your circle spills over neighbouring
-towns and lights up the fact that they exist without giving you credit for them: they sit there
-ghosted, named, waiting. Roughly nine of every ten discoveries reveal at least one neighbour this
-way, about 1.8 on average, and reaching Annapolis or Wilmington uncovers eight or nine at once.
-
-Icon size follows the city's tier, names show under lit towns always and under ghosted ones in local
-view.
+places and shows you that they exist without naming them or giving you credit. Roughly nine of every
+ten discoveries expose at least one neighbour this way, about 1.8 on average. Dot size and town size
+both follow the city's tier, so a major city reads larger even as a dot.
 
 ## Secrets
 

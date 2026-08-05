@@ -1169,11 +1169,11 @@ function runCeremony(){
   }, 6200);
 }
 
-var TOWN_SIZE = { s:[28,26], m:[34,31], l:[42,38] };
+var TOWN_SIZE = { s:[26,24], m:[31,28], l:[38,34] };
+var DOT_SIZE  = { s:7, m:9, l:11 };
 
-function townSvg(lit){
-  var c = lit ? '#d9b45c' : '#6f6a5c';
-  var win = lit ? '#f0dda4' : 'none';
+function townSvg(){
+  var c = '#d9b45c', win = '#f0dda4', lit = true;
   return '<svg viewBox="0 0 36 30" fill="none" stroke="'+c+'" stroke-width="1.5" '+
     'stroke-linejoin="round" stroke-linecap="round">'+
     '<path d="M4 26v-9l6-5 6 5v9z" fill="'+(lit?'rgba(20,15,9,.92)':'rgba(14,12,9,.55)')+'"/>'+
@@ -1197,8 +1197,8 @@ function secretSvg(){
     '<path d="M11 18.5v-3.2h2v3.2z" fill="rgba(14,11,7,.92)"/></svg>';
 }
 
-/* Every town is on the map from the start — dark and ghosted until someone
-   reaches it, lit once they have. Secrets stay hidden until found. */
+/* Every town is on the map from the start: a pale unnamed dot until someone
+   reaches it, a lit and lettered town once they have. Secrets stay hidden. */
 function drawPoiMarker(p, isNew){
   if (poiLayer[p.id]){ map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
   if (p.secret && !p.found) return;
@@ -1207,19 +1207,21 @@ function drawPoiMarker(p, isNew){
   if (p.secret){
     w = 26; h = 30; anchorY = 27;
     html = '<div class="poi secret'+(isNew?' new':'')+'">'+secretSvg()+'</div>';
+  } else if (!p.found){
+    // unreached: a pale dot and nothing else. You can see something is there.
+    var d = DOT_SIZE[p.size] || DOT_SIZE.m;
+    w = h = d; anchorY = d/2;
+    html = '<div class="dot"></div>';
   } else {
     var dim = TOWN_SIZE[p.size] || TOWN_SIZE.m;
     w = dim[0]; h = dim[1]; anchorY = h - 2;
-    html = '<div class="town '+(p.found ? 'lit' : 'ghost')+(isNew?' new':'')+'">'+
-             townSvg(p.found)+
-             '<span class="nm">'+p.name.replace(/</g,'&lt;')+'</span>'+
-           '</div>';
+    html = '<div class="town lit'+(isNew?' new':'')+'">'+ townSvg(true) +
+             '<span class="nm">'+p.name.replace(/</g,'&lt;')+'</span></div>';
   }
   poiLayer[p.id] = L.marker([p.lat,p.lng], {
     pane: p.secret ? 'markerPane' : 'towns',
     icon:L.divIcon({ className:'', html:html, iconSize:[w,h], iconAnchor:[w/2,anchorY] })
-  }).addTo(map).bindTooltip(
-      p.found ? p.name : p.name + ' — unvisited',
+  }).addTo(map).bindTooltip(p.name,
       { direction:'top', offset:[0,-anchorY], className:'poi-tip' });
 }
 
