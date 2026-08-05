@@ -4,7 +4,7 @@
      keeps rendering when the signal drops
    - place lookups (Nominatim) always go to the network
 */
-const VERSION    = 'v7';
+const VERSION    = 'v8';
 const SHELL      = 'ow-shell-' + VERSION;
 const TILES      = 'ow-tiles-' + VERSION;
 const TILE_LIMIT = 1500;
@@ -74,7 +74,8 @@ self.addEventListener('fetch', event => {
   try { url = new URL(req.url); } catch { return; }
 
   // place lookups must never be served stale
-  if (url.hostname.endsWith('nominatim.openstreetmap.org')) return;
+  if (url.hostname.endsWith('nominatim.openstreetmap.org') ||
+      url.hostname.endsWith('photon.komoot.io')) return;
 
   // tiles and font files
   if (TILE_HOSTS.some(h => url.hostname.endsWith(h))) {

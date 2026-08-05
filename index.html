@@ -327,10 +327,12 @@
   .check.strike.on .nm{color:var(--parchment-dim);text-decoration:line-through;
     text-decoration-color:rgba(163,58,38,.8)}
 
-  .result{display:block;width:100%;text-align:left;padding:10px 6px;background:none;border:0;
+  .result{display:block;width:100%;text-align:left;padding:11px 6px;background:none;border:0;
     border-bottom:1px solid rgba(217,180,92,.1);color:var(--parchment);font-family:var(--body);
-    font-size:14px;cursor:pointer;line-height:1.4}
+    cursor:pointer;line-height:1.35}
   .result:active{background:rgba(217,180,92,.1)}
+  .result .r-name{display:block;font-family:var(--display);font-size:15px;color:var(--parchment)}
+  .result .r-where{display:block;font-size:12.5px;color:var(--parchment-dim);font-style:italic;margin-top:2px}
 
   @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
@@ -532,7 +534,7 @@
     <div class="ask"><b>The Cartographer</b>
       And tell me, adventurer — what do you still want to see?</div>
     <div class="tools">
-      <input class="search" id="add-search" type="text" placeholder="Name a place to add…">
+      <input class="search" id="add-search" type="text" placeholder="Type a town or landmark…">
       <button class="go" id="add-go" style="padding:12px 16px">Find</button>
     </div>
     <div class="listwrap">

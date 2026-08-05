@@ -1481,33 +1481,103 @@ function countVisited(){
     n + (n === 1 ? ' place seen' : ' places seen');
 }
 
+/* ── Finding places ───────────────────────────────────────────────
+   Photon (komoot) is built for search-as-you-type, so that is the first
+   stop. If it is unreachable we fall back to Nominatim, which is not, so
+   that path only runs on an explicit search. Coordinates always work. */
+var searchTimer = null, searchSeq = 0;
+
+function queueSearch(){
+  clearTimeout(searchTimer);
+  var q = ($('add-search').value || '').trim();
+  if (q.length < 3){ $('add-results').innerHTML = ''; return; }
+  searchTimer = setTimeout(function(){ searchPlace(); }, 350);
+}
+
 function searchPlace(){
   var q = ($('add-search').value || '').trim();
-  if (!q) return;
   var box = $('add-results');
+  if (!q){ box.innerHTML = ''; return; }
+  if (q.length < 2){ box.innerHTML = '<div class="hint">A little more to go on.</div>'; return; }
+
+  var seq = ++searchSeq;
   box.innerHTML = '<div class="hint">Searching the maps…</div>';
-  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q=' + encodeURIComponent(q))
-    .then(function(r){ return r.json(); })
-    .then(function(list){
-      if (!list.length){ box.innerHTML = '<div class="hint">No such place found. You can enter coordinates instead.</div>'; return; }
-      box.innerHTML = '';
-      list.forEach(function(r){
-        var b = document.createElement('button'); b.className = 'result';
-        b.textContent = r.display_name;
-        b.onclick = function(){
-          var name = r.display_name.split(',')[0];
-          var lat = parseFloat(r.lat), lng = parseFloat(r.lon);
-          added.push({ id:uid(), name:name, state:stateOf(lat,lng), lat:lat, lng:lng, found:false });
-          $('add-search').value = ''; box.innerHTML = '';
-          paintAdded();
+
+  var near = pos ? ('&lat=' + pos.lat.toFixed(3) + '&lon=' + pos.lng.toFixed(3)) : '';
+  var url = 'https://photon.komoot.io/api/?limit=10&lang=en' + near + '&q=' + encodeURIComponent(q);
+
+  fetch(url)
+    .then(function(r){ if (!r.ok) throw 0; return r.json(); })
+    .then(function(d){
+      if (seq !== searchSeq) return;
+      var hits = (d.features || []).map(function(f){
+        var pr = f.properties || {}, c = f.geometry && f.geometry.coordinates;
+        if (!c) return null;
+        return {
+          name: pr.name || pr.city || pr.county || 'Unnamed',
+          where: [pr.state, pr.country].filter(Boolean).join(', '),
+          kind: pr.osm_value || pr.type || '',
+          isPlace: pr.osm_key === 'place' || pr.osm_key === 'boundary',
+          lat: c[1], lng: c[0]
         };
-        box.appendChild(b);
-      });
+      }).filter(Boolean);
+
+      // towns and cities first, then everything else
+      hits.sort(function(x,y){ return (y.isPlace?1:0) - (x.isPlace?1:0); });
+      if (!hits.length) throw 0;
+      showResults(hits);
     })
     .catch(function(){
-      box.innerHTML = '<div class="hint">The map service did not answer. Try coordinates instead.</div>';
+      if (seq !== searchSeq) return;
+      // Nominatim, one shot, no type-ahead
+      fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=8&q=' +
+            encodeURIComponent(q))
+        .then(function(r){ return r.json(); })
+        .then(function(list){
+          if (seq !== searchSeq) return;
+          var hits = (list || []).map(function(r){
+            var ad = r.address || {};
+            return {
+              name: ad.city || ad.town || ad.village || ad.hamlet || r.name || r.display_name.split(',')[0],
+              where: [ad.state, ad.country].filter(Boolean).join(', '),
+              kind: r.type || '', isPlace: true,
+              lat: parseFloat(r.lat), lng: parseFloat(r.lon)
+            };
+          });
+          if (!hits.length){
+            $('add-results').innerHTML = '<div class="hint">Nothing by that name. Try the town it sits near, or add it by coordinates.</div>';
+            return;
+          }
+          showResults(hits);
+        })
+        .catch(function(){
+          $('add-results').innerHTML = '<div class="hint">The map service did not answer. You can still add it by coordinates.</div>';
+        });
     });
 }
+
+function showResults(hits){
+  var box = $('add-results');
+  box.innerHTML = '';
+  hits.slice(0,8).forEach(function(h){
+    var b = document.createElement('button');
+    b.className = 'result';
+    var sub = [h.where, h.isPlace ? '' : h.kind].filter(Boolean).join(' · ');
+    b.innerHTML = '<span class="r-name"></span><span class="r-where"></span>';
+    b.querySelector('.r-name').textContent = h.name;
+    b.querySelector('.r-where').textContent = sub;
+    b.onclick = function(){
+      added.push({ id:uid(), name:h.name, state:stateOf(h.lat,h.lng),
+                   lat:h.lat, lng:h.lng, found:false });
+      $('add-search').value = '';
+      box.innerHTML = '';
+      searchSeq++;
+      paintAdded();
+    };
+    box.appendChild(b);
+  });
+}
+
 function paintAdded(){
   var el = $('added-list'); el.innerHTML = '';
   if (!added.length){ el.innerHTML = '<div class="hint">Nothing added yet — this is optional.</div>'; return; }
@@ -1629,8 +1699,12 @@ function wire(){
   $('never-search').oninput = paintNeverList;
   $('s3-next').onclick = function(){ secondQuestion(); };
   $('s3-none').onclick = function(){ struck = {}; paintNeverList(); secondQuestion(); };
-  $('add-go').onclick = searchPlace;
-  $('add-search').onkeydown = function(e){ if (e.key === 'Enter'){ e.preventDefault(); searchPlace(); } };
+  $('add-go').onclick = function(){ clearTimeout(searchTimer); searchPlace(); };
+  $('add-search').oninput = queueSearch;
+  $('add-search').onkeydown = function(e){
+    e.stopPropagation();
+    if (e.key === 'Enter'){ e.preventDefault(); clearTimeout(searchTimer); searchPlace(); }
+  };
   $('add-coord').onclick = function(){
     var s = ask('Enter latitude, longitude', '');
     if (!s) return;
@@ -1730,12 +1804,23 @@ function wire(){
   });
   var keymap = { ArrowUp:'n', ArrowDown:'s', ArrowLeft:'w', ArrowRight:'e',
                  w:'n', s:'s', a:'w', d:'e', W:'n', S:'s', A:'w', D:'e' };
+  /* WASD steers the test traveller — but never while the traveller is typing.
+     iOS fires keydown for the on-screen keyboard too, so swallowing these
+     would eat those letters out of every search field. */
+  function typingInto(e){
+    var t = e.target;
+    if (!t) return false;
+    var tag = t.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+  }
   window.addEventListener('keydown', function(e){
+    if (typingInto(e) || uiBusy()) return;
     if (e.key === 'Shift') simSprint = true;
     if (!cfg.sim || !keymap[e.key]) return;
     e.preventDefault(); simVec = Object.assign({}, dirs[keymap[e.key]]);
   });
   window.addEventListener('keyup', function(e){
+    if (typingInto(e)) return;
     if (e.key === 'Shift') simSprint = false;
     if (cfg.sim && keymap[e.key]) simVec = {x:0,y:0};
   });
