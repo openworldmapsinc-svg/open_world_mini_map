@@ -47,9 +47,14 @@ wind cue underneath it, and then the view drops back to where you are standing. 
 arrivals queue and play one after another, and nothing starts while you have the atlas, the settings
 or the Cartographer open — a held discovery waits until you are back on the map.
 
-Reaching a city clears **100 miles in every direction from wherever you were standing** when it
-triggered — not from the city's own coordinates. When every city in a state has been reached, that
-whole state falls open at once. Each state is divided among its
+Reaching a city clears a circle centred on **wherever you were standing** when it triggered — not on
+the city's own coordinates. How far it reaches depends on the size of the place: **75 miles** for a
+small town, **100** for a mid-sized city, **125** for a major one (`TIER_MILES` in `app.js`, tier per
+city in `data.js`).
+
+Circles freely run over towns nobody has reached yet, and that is the point — see **Towns** below.
+
+When every city in a state has been reached, that whole state falls open at once. Each state is divided among its
 cities by proximity: every point in the state belongs to whichever city is nearest. So in
 California, San Francisco opens 57% of the state — everything north of roughly Fresno — Los
 Angeles opens 35% from the middle down, and San Diego opens the bottom 7%. The split is computed
@@ -89,12 +94,27 @@ the default **Nightfall** style carries none, so the local map reads plainly and
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
 American ground is hidden. Travelling outside the US at local zoom restores ordinary fog everywhere.
 
+## Towns
+
+Every city carries a town icon that lives **beneath the fog**, so you see it only once its ground is
+clear. An unreached town is **ghosted** — grey, dim, unlit windows. A town you have reached is
+**illuminated** in gold, with a pennant flying and the lamps on, and it kindles to life the moment
+you arrive.
+
+This makes a discovery worth more than the ground it clears. Your circle spills over neighbouring
+towns and lights up the fact that they exist without giving you credit for them: they sit there
+ghosted, named, waiting. Roughly nine of every ten discoveries reveal at least one neighbour this
+way, about 1.8 on average, and reaching Annapolis or Wilmington uncovers eight or nine at once.
+
+Icon size follows the city's tier, names show under lit towns always and under ghosted ones in local
+view.
+
 ## Secrets
 
 Forty-eight places are hidden in the data and never appear in the atlas, the setup questions or any
 count — you find them only by wandering close enough. A secret announces itself as **Secret
 Discovered** in red rather than gold, names the town it hides in, plays a colder minor chord, drops a
-castle marker instead of a star, and clears **50 miles**. Secrets never count toward opening a state.
+castle marker instead of a star, and clears **50 miles**, trimmed by the same rule. Secrets never count toward opening a state.
 
 For testing, the red **+** below the gold one hides a secret wherever you tap.
 

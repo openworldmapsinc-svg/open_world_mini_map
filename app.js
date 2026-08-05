@@ -42,8 +42,12 @@ var MAX_ZOOM = 21;     // roughly 100 feet across
 var CELL_M   = 40;     // trail de-dupe + charted-area grid
 var MAX_TRAIL= 9000;
 var GRID      = 36;    // rows/columns used when clearing a whole state
-var POI_MILES    = 100; // cleared around you when you reach a city
+/* How far a discovery clears, by the size of the place. */
+var TIER_MILES   = { s:75, m:100, l:125 };
+var POI_MILES    = 100; // fallback when a city carries no size
 var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
+/* Circles are free to run over towns nobody has reached yet — that is how
+   you learn a place is there. */
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
 var LOCAL_MILES = 0.5; // local view shows half a mile in every direction
 var TINT_FULL = 5.6;   // below this zoom the chart is fully aged
@@ -83,7 +87,8 @@ function uid(){ return 'u-' + Math.random().toString(36).slice(2,9); }
 
 function defaultPois(){
   return D.CITIES.map(function(c){
-    return { id:'d-'+c.s+'-'+slug(c.n), name:c.n, state:c.s, lat:c.lat, lng:c.lng, found:false };
+    return { id:'d-'+c.s+'-'+slug(c.n), name:c.n, state:c.s, size:c.z || 'm',
+             lat:c.lat, lng:c.lng, found:false };
   });
 }
 function defaultSecrets(){
@@ -605,11 +610,16 @@ function revealTrail(lat,lng){
   maskDirty = true; save(); paintStats();
 }
 
+/* How far this discovery clears. */
+function clearingRadius(poi){
+  return (poi.secret ? SECRET_MILES : (TIER_MILES[poi.size] || POI_MILES)) * MILE;
+}
+
 function revealPoi(poi, animate, atLat, atLng){
   if (animate) gustAt = performance.now();
   var lat = (atLat != null) ? atLat : poi.lat;
   var lng = (atLng != null) ? atLng : poi.lng;
-  var r = (poi.secret ? SECRET_MILES : POI_MILES) * MILE;
+  var r = clearingRadius(poi);
 
   var c = { t:'c', lat:r4(lat), lng:r4(lng), r:Math.round(r), id:poi.id };
   if (animate) c.born = performance.now();
@@ -857,6 +867,10 @@ function bindViewGestures(){
 
 
 function buildPanes(){
+  // towns sit beneath the fog: you only see one once its ground is clear
+  map.createPane('towns');
+  map.getPane('towns').style.zIndex = 435;
+
   map.createPane('trail');
   map.getPane('trail').style.zIndex = 470;
   map.getPane('trail').style.pointerEvents = 'none';
@@ -1155,24 +1169,60 @@ function runCeremony(){
   }, 6200);
 }
 
+var TOWN_SIZE = { s:[28,26], m:[34,31], l:[42,38] };
+
+function townSvg(lit){
+  var c = lit ? '#d9b45c' : '#6f6a5c';
+  var win = lit ? '#f0dda4' : 'none';
+  return '<svg viewBox="0 0 36 30" fill="none" stroke="'+c+'" stroke-width="1.5" '+
+    'stroke-linejoin="round" stroke-linecap="round">'+
+    '<path d="M4 26v-9l6-5 6 5v9z" fill="'+(lit?'rgba(20,15,9,.92)':'rgba(14,12,9,.55)')+'"/>'+
+    '<path d="M18 26V8h7v18z" fill="'+(lit?'rgba(20,15,9,.92)':'rgba(14,12,9,.55)')+'"/>'+
+    '<path d="M25 8V3.5l5 2.2-5 2.2z" fill="'+(lit?c:'none')+'"/>'+
+    '<path d="M26 26v-7l4-3 4 3v7z" fill="'+(lit?'rgba(20,15,9,.92)':'rgba(14,12,9,.55)')+'"/>'+
+    '<path d="M2 26.6h32"/>'+
+    '<rect x="8.6" y="18.5" width="2.8" height="3.4" fill="'+win+'" stroke="none"/>'+
+    '<rect x="20.4" y="13" width="2.6" height="3.2" fill="'+win+'" stroke="none"/>'+
+    '<rect x="28.6" y="20.5" width="2.4" height="2.8" fill="'+win+'" stroke="none"/>'+
+    '</svg>';
+}
+
+function secretSvg(){
+  return '<svg viewBox="0 0 24 28" fill="none">'+
+    '<path d="M12 27C12 27 3.6 17.2 3.6 10.8A8.4 8.4 0 1 1 20.4 10.8C20.4 17.2 12 27 12 27Z" '+
+      'fill="rgba(14,11,7,.9)" stroke="#c0442c" stroke-width="1.2"/>'+
+    '<path d="M7 18.5v-6.2h10v6.2z" fill="#c0442c"/>'+
+    '<path d="M7 12.3v-2h1.7v1.4h1.7v-1.4H12v1.4h1.6v-1.4h1.7v1.4H17v2" fill="none" '+
+      'stroke="#c0442c" stroke-width="1.1"/>'+
+    '<path d="M11 18.5v-3.2h2v3.2z" fill="rgba(14,11,7,.92)"/></svg>';
+}
+
+/* Every town is on the map from the start — dark and ghosted until someone
+   reaches it, lit once they have. Secrets stay hidden until found. */
 function drawPoiMarker(p, isNew){
   if (poiLayer[p.id]){ map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
-  if (!p.found) return;
-  var col = p.secret ? '#c0442c' : '#d9b45c';
-  var glyph = p.secret
-    ? '<path d="M7 18.5v-6.2h10v6.2z" fill="'+col+'"/>'+
-      '<path d="M7 12.3v-2h1.7v1.4h1.7v-1.4H12v1.4h1.6v-1.4h1.7v1.4H17v2" fill="none" stroke="'+col+'" stroke-width="1.1"/>'+
-      '<path d="M11 18.5v-3.2h2v3.2z" fill="rgba(14,11,7,.92)"/>'
-    : '<path d="M12 5.6l1.7 3.9 4.2.4-3.2 2.8 1 4.1L12 14.6l-3.7 2.2 1-4.1-3.2-2.8 4.2-.4z" fill="'+col+'"/>';
-  var html = '<div class="poi'+(isNew?' new':'')+(p.secret?' secret':'')+'">'+
-    '<svg width="26" height="30" viewBox="0 0 24 28">'+
-    '<path d="M12 27C12 27 3.6 17.2 3.6 10.8A8.4 8.4 0 1 1 20.4 10.8C20.4 17.2 12 27 12 27Z" '+
-      'fill="rgba(14,11,7,.9)" stroke="'+col+'" stroke-width="1.2"/>'+ glyph +
-    '</svg></div>';
+  if (p.secret && !p.found) return;
+
+  var html, w, h, anchorY;
+  if (p.secret){
+    w = 26; h = 30; anchorY = 27;
+    html = '<div class="poi secret'+(isNew?' new':'')+'">'+secretSvg()+'</div>';
+  } else {
+    var dim = TOWN_SIZE[p.size] || TOWN_SIZE.m;
+    w = dim[0]; h = dim[1]; anchorY = h - 2;
+    html = '<div class="town '+(p.found ? 'lit' : 'ghost')+(isNew?' new':'')+'">'+
+             townSvg(p.found)+
+             '<span class="nm">'+p.name.replace(/</g,'&lt;')+'</span>'+
+           '</div>';
+  }
   poiLayer[p.id] = L.marker([p.lat,p.lng], {
-    icon:L.divIcon({ className:'', html:html, iconSize:[26,30], iconAnchor:[13,27] })
-  }).addTo(map).bindTooltip(p.name, { direction:'top', offset:[0,-24], className:'poi-tip' });
+    pane: p.secret ? 'markerPane' : 'towns',
+    icon:L.divIcon({ className:'', html:html, iconSize:[w,h], iconAnchor:[w/2,anchorY] })
+  }).addTo(map).bindTooltip(
+      p.found ? p.name : p.name + ' — unvisited',
+      { direction:'top', offset:[0,-anchorY], className:'poi-tip' });
 }
+
 function refreshPoiMarkers(){
   Object.keys(poiLayer).forEach(function(id){ map.removeLayer(poiLayer[id]); });
   poiLayer = {};
@@ -1184,10 +1234,10 @@ function addPoi(lat,lng,name,secret){
                       secret ? 'Secret ' + (pois.filter(function(p){return p.secret;}).length+1)
                              : 'Waypoint ' + (openPois().length+1));
   if (n === null) return null;
-  var p = { id:uid(), name:(n||'Unnamed').trim(), state:stateOf(lat,lng),
+  var p = { id:uid(), name:(n||'Unnamed').trim(), state:stateOf(lat,lng), size:'m',
             lat:lat, lng:lng, found:false };
   if (secret){ p.secret = true; p.city = 'a place unmarked'; }
-  pois.push(p); save(); paintList(); paintStats();
+  pois.push(p); drawPoiMarker(p, false); save(); paintList(); paintStats();
   toast(secret ? 'A secret waits there.' : 'Added to the map: ' + p.name);
   if (pos) checkArrivals(pos.lat,pos.lng);
   return p;
@@ -1600,6 +1650,9 @@ function finishSetup(){
   var gone = Object.keys(struck).filter(function(k){ return struck[k]; });
   if (gone.length){
     gone.forEach(function(id){ if (removed.indexOf(id) < 0) removed.push(id); });
+    gone.forEach(function(id){
+      if (poiLayer[id]){ map.removeLayer(poiLayer[id]); delete poiLayer[id]; }
+    });
     pois = pois.filter(function(p){ return gone.indexOf(p.id) < 0; });
     struck = {};
   }

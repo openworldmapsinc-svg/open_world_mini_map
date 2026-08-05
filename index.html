@@ -80,6 +80,24 @@
     animation:ping 2.8s cubic-bezier(.2,.6,.3,1) infinite}
   @keyframes ping{0%{transform:scale(.4);opacity:.9}70%{transform:scale(2);opacity:0}100%{opacity:0}}
   .poi svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.85))}
+
+  /* ---------- towns, beneath the fog ---------- */
+  .town{position:relative;width:100%;height:100%;display:block}
+  .town svg{width:100%;height:100%;display:block}
+  .town.ghost{opacity:.5}
+  .town.ghost svg{filter:drop-shadow(0 1px 3px rgba(0,0,0,.8))}
+  .town.lit svg{filter:drop-shadow(0 2px 7px rgba(0,0,0,.9)) drop-shadow(0 0 9px rgba(217,180,92,.45))}
+  .town .nm{display:none;position:absolute;left:50%;top:100%;transform:translateX(-50%);
+    margin-top:3px;white-space:nowrap;font-family:var(--display);font-size:9.5px;font-weight:600;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--gold-pale);
+    text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.95);pointer-events:none}
+  .town.lit .nm{display:block}
+  .view-local .town.ghost .nm{display:block;color:#8d8676;font-weight:400}
+  .town.new{animation:kindle 1.1s cubic-bezier(.2,.8,.2,1)}
+  @keyframes kindle{
+    0%{transform:scale(.7);opacity:.35;filter:brightness(.5)}
+    45%{transform:scale(1.18);opacity:1;filter:brightness(1.9)}
+    100%{transform:scale(1);opacity:1;filter:brightness(1)}}
   .poi.new{animation:bloom 1s cubic-bezier(.2,.8,.2,1)}
   @keyframes bloom{0%{transform:scale(0) translateY(10px);opacity:0}60%{transform:scale(1.22)}100%{transform:scale(1)}}
 
