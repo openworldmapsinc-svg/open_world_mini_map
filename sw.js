@@ -4,7 +4,7 @@
      keeps rendering when the signal drops
    - place lookups (Nominatim) always go to the network
 */
-const VERSION    = 'v17';
+const VERSION    = 'v18';
 const SHELL      = 'ow-shell-' + VERSION;
 const TILES      = 'ow-tiles-' + VERSION;
 const TILE_LIMIT = 1500;
@@ -12,9 +12,9 @@ const TILE_LIMIT = 1500;
 const SHELL_FILES = [
   './',
   './index.html',
-  './data.js?v17',
-  './states.js?v17',
-  './app.js?v17',
+  './data.js?v18',
+  './states.js?v18',
+  './app.js?v18',
   './manifest.json',
   './cartographer.jpg',
   './icon.svg',

@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v17';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v18';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -358,6 +358,32 @@ function stateReveal(code){
 }
 function hasStateReveal(code){
   return reveals.some(function(r){ return r.t === 's' && r.code === code; });
+}
+
+/* A safety net. If a state is finished but its outline was never cleared —
+   an older journal, an interrupted setup, a discovery that landed while the
+   app was closing — put it right on the next load rather than leaving the
+   traveller staring at fog they have earned. */
+function auditStates(){
+  var n = 0, sv;
+  if (stateMode()){
+    for (var i=0;i<pois.length;i++){
+      var p = pois[i];
+      if (p.found && p.state && !hasStateReveal(p.state)){
+        sv = stateReveal(p.state);
+        if (sv){ reveals.push(sv); n++; }
+      }
+    }
+  } else {
+    for (var code in STATES){
+      if (stateComplete(code) && !hasStateReveal(code)){
+        sv = stateReveal(code);
+        if (sv){ reveals.push(sv); n++; }
+      }
+    }
+  }
+  if (n){ maskDirty = true; save(); }
+  return n;
 }
 
 function stateComplete(code){
@@ -1487,6 +1513,7 @@ function runCeremony(){
   setTimeout(function(){                    // 4. back to the traveller
     if (discoveryQueue.length){ runCeremony(); return; }
     ceremony = false;
+    auditStates();
     if (mapMode()) setWorldView(true);
     else if (pos) setViewState(back, true);
   }, 6200);
@@ -2088,8 +2115,10 @@ function finishSetup(){
   pois.forEach(function(p){
     if (visited[p.id]){ p.found = true; revealPoi(p, false); any = true; }
   });
-  setupDone = true; save();
+  setupDone = true;
   applyMode();
+  auditStates();
+  save();
   refreshPoiMarkers(); paintStats(); paintList();
   $('setup').style.display = 'none';
   maskDirty = true;
@@ -2373,6 +2402,7 @@ function wire(){
 load();
 buildMap();
 applyMode();
+auditStates();
 wire();
 refreshPoiMarkers();
 paintStats();
