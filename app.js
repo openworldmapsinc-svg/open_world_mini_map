@@ -6,6 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
+var BUILD  = 'v16';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -2202,6 +2203,26 @@ function wire(){
   $('f-style').onchange = function(){ cfg.style = this.value; save(); setTiles(cfg.style); maskDirty = true; };
   $('f-sound').onchange = function(){ cfg.sound = this.checked; save(); if (this.checked){ ensureAudio(); playDiscovery(); } };
   $('f-sim').onchange   = function(){ if (this.checked) startSim(pos?pos.lat:undefined, pos?pos.lng:undefined); else stopSim(); paintList(); };
+
+  $('build-id').textContent = BUILD;
+
+  /* Clears every cache and the service worker, then reloads from the server.
+     Your journal is untouched. */
+  $('a-update').onclick = function(){
+    toast('Fetching the newest charts…');
+    var jobs = [];
+    if (window.caches && caches.keys)
+      jobs.push(caches.keys().then(function(k){
+        return Promise.all(k.map(function(n){ return caches.delete(n); }));
+      }));
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+      jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+        return Promise.all(rs.map(function(r){ return r.unregister(); }));
+      }));
+    Promise.all(jobs).catch(function(){}).then(function(){
+      setTimeout(function(){ location.replace(location.pathname + '?r=' + Date.now()); }, 300);
+    });
+  };
 
   $('a-export').onclick = function(){
     var blob = new Blob([localStorage.getItem(STORE)||'{}'], {type:'application/json'});

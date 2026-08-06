@@ -12,9 +12,9 @@ const TILE_LIMIT = 1500;
 const SHELL_FILES = [
   './',
   './index.html',
-  './data.js',
-  './states.js',
-  './app.js',
+  './data.js?v16',
+  './states.js?v16',
+  './app.js?v16',
   './manifest.json',
   './cartographer.jpg',
   './icon.svg',
@@ -119,8 +119,21 @@ self.addEventListener('fetch', event => {
   const own = url.origin === self.location.origin;
   if (!own && !SHELL_HOSTS.some(h => url.hostname.endsWith(h))) return;
 
+  const ownCode = own && /\.(js|json)(\?|$)/.test(url.pathname + url.search);
+
   event.respondWith((async () => {
     const cache = await caches.open(SHELL);
+    if (ownCode) {                       // network first: never serve yesterday's app
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) cache.put(req, res.clone());
+        return res;
+      } catch {
+        const hit = await cache.match(req);
+        if (hit) return hit;
+        throw new Error('offline and uncached');
+      }
+    }
     const hit = await cache.match(req);
     const net = fetch(req).then(res => {
       if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
