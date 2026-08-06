@@ -4,7 +4,7 @@
      keeps rendering when the signal drops
    - place lookups (Nominatim) always go to the network
 */
-const VERSION    = 'v16';
+const VERSION    = 'v17';
 const SHELL      = 'ow-shell-' + VERSION;
 const TILES      = 'ow-tiles-' + VERSION;
 const TILE_LIMIT = 1500;
@@ -12,9 +12,9 @@ const TILE_LIMIT = 1500;
 const SHELL_FILES = [
   './',
   './index.html',
-  './data.js?v16',
-  './states.js?v16',
-  './app.js?v16',
+  './data.js?v17',
+  './states.js?v17',
+  './app.js?v17',
   './manifest.json',
   './cartographer.jpg',
   './icon.svg',
@@ -120,6 +120,18 @@ self.addEventListener('fetch', event => {
   if (!own && !SHELL_HOSTS.some(h => url.hostname.endsWith(h))) return;
 
   const ownCode = own && /\.(js|json)(\?|$)/.test(url.pathname + url.search);
+  const media = own && /\.(mp3|m4a|wav|ogg)(\?|$)/.test(url.pathname + url.search);
+  if (media) {                           // sounds: cache on first play, then serve offline
+    event.respondWith((async () => {
+      const cache = await caches.open(SHELL);
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res && res.ok) cache.put(req, res.clone());
+      return res;
+    })());
+    return;
+  }
 
   event.respondWith((async () => {
     const cache = await caches.open(SHELL);

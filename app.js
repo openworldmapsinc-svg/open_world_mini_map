@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v16';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v17';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -44,6 +44,33 @@ var LINES = {
   farewell:  { say:['Very good.', 'Good luck out there.'], btn:'Set out' },
   logAsk:    { say:['So — where have your travels taken you since last we spoke?'], btn:'Show him' },
   logDone:   { say:['Very good.'], btn:'Show me' }
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SOUND EFFECTS
+   Leave a value empty ('') and the sound is synthesized in code, as
+   it is now. Put a file path in and that file plays instead.
+
+     SOUNDS.discovery       reaching a city, or a state
+     SOUNDS.secret          finding a secret
+     SOUNDS.complete        a state fully explored
+     SOUNDS.hmm             the Cartographer appears (thinking)
+     SOUNDS.clear           the Cartographer appears (throat clear)
+     SOUNDS.cackle          his laugh
+
+   Paths are relative to the app, e.g. 'sounds/discovery.mp3'.
+   Use .mp3, .m4a or .wav — Safari plays all three. Keep them small;
+   they are downloaded once and kept for offline use.
+   `volume` is a multiplier applied to every file, 0 to 1.
+   ═══════════════════════════════════════════════════════════════ */
+var SOUNDS = {
+  discovery : '',
+  secret    : '',
+  complete  : '',
+  hmm       : '',
+  clear     : '',
+  cackle    : '',
+  volume    : 0.9
 };
 
 /* Words used on the discovery banner. */
@@ -826,6 +853,7 @@ function withAudio(fn){
 (function(){
   var unlock = function(){
     ensureAudio();
+    warmSamples();
     document.removeEventListener('pointerdown', unlock, true);
     document.removeEventListener('touchend', unlock, true);
   };
@@ -833,8 +861,11 @@ function withAudio(fn){
   document.addEventListener('touchend', unlock, true);
 })();
 
-function playDiscovery(secret){
+function playDiscovery(secret, complete){
   if (!cfg.sound) return;
+  var file = complete ? SOUNDS.complete : (secret ? SOUNDS.secret : SOUNDS.discovery);
+  if (!file && complete) file = SOUNDS.discovery;        // no completion file? use the usual one
+  if (file && playSample(file)) return;
   withAudio(function(ac){ discoveryOn(ac, secret); });
 }
 function discoveryOn(ac, secret){
@@ -1128,10 +1159,55 @@ function drawPath(){
   });
 }
 
+/* ── Playing sound files ──────────────────────────────────────────
+   Fetched once, decoded, then kept in memory. Falls back to the
+   synthesized cue if the file is missing or will not decode. */
+var sampleCache = {};
+
+function loadSample(url){
+  if (sampleCache[url] !== undefined) return sampleCache[url];
+  var ac = ensureAudio();
+  if (!ac){ sampleCache[url] = null; return null; }
+  sampleCache[url] = fetch(url)
+    .then(function(r){ if (!r.ok) throw 0; return r.arrayBuffer(); })
+    .then(function(buf){
+      return new Promise(function(res, rej){
+        ac.decodeAudioData(buf, res, rej);      // callback form, for older Safari
+      });
+    })
+    .catch(function(){ console.warn('Sound not loaded:', url); return null; });
+  return sampleCache[url];
+}
+
+/* Returns true if a file was played, false to fall through to synthesis. */
+function playSample(url, gain){
+  if (!url || !cfg.sound) return false;
+  withAudio(function(ac){
+    Promise.resolve(loadSample(url)).then(function(buf){
+      if (!buf) return;
+      var src = ac.createBufferSource(); src.buffer = buf;
+      var g = ac.createGain();
+      g.gain.value = (gain == null ? 1 : gain) * (SOUNDS.volume == null ? 1 : SOUNDS.volume);
+      src.connect(g); g.connect(ac.destination);
+      src.start();
+    });
+  });
+  return true;
+}
+
+/* Pull the files in quietly once audio is unlocked, so the first cue
+   is not held up by a download. */
+function warmSamples(){
+  ['discovery','secret','complete','hmm','clear','cackle'].forEach(function(k){
+    if (SOUNDS[k]) loadSample(SOUNDS[k]);
+  });
+}
+
 /* ── The Cartographer's voice ─────────────────────────────────────
    Short, dry, wordless. Synthesized so there are no audio files to ship. */
 function vocalize(kind){
   if (!cfg.sound) return;
+  if (SOUNDS[kind] && playSample(SOUNDS[kind])) return;   // your file, if you gave one
   withAudio(function(ac){ vocalizeOn(ac, kind); });
 }
 function vocalizeOn(ac, kind){
@@ -1396,7 +1472,7 @@ function runCeremony(){
 
   setTimeout(function(){                    // 2. name it, and start the wind
     announce(p);
-    playDiscovery(!!p.secret);
+    playDiscovery(!!p.secret, !!p.complete);
     if (navigator.vibrate) navigator.vibrate([20,70,34]);
   }, 1150);
 
