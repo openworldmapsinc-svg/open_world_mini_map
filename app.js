@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v20';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v21';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -506,26 +506,39 @@ function softRect(ctx,x,y,w,h,r){
 
 /* The realm boundary — fog never spills onto the oceans or the
    neighbouring kingdoms. */
+/* Trace a set of [lng,lat] rings, filling and then stroking so the shape is
+   dilated by the current lineWidth. Used for both the land clip and a cleared
+   state, so the two are cut from exactly the same geometry. */
+function tracePolys(ctx, rings){
+  for (var r=0;r<rings.length;r++){
+    var ring = rings[r];
+    ctx.beginPath();
+    for (var i=0;i<ring.length;i++){
+      var p = map.latLngToContainerPoint([ring[i][1], ring[i][0]]);
+      if (i === 0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/* The realm boundary — fog never spills onto the oceans or the neighbouring
+   kingdoms. Built from the state outlines themselves where they exist, so a
+   cleared state and the coast it sits on share one shape and no rim survives. */
 function buildLand(){
   lctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
   lctx.clearRect(0,0,landCanvas.width/MASK_SCALE, landCanvas.height/MASK_SCALE);
   lctx.fillStyle = '#fff';
-  var rings = D.OUTLINE || [];
-  for (var r=0;r<rings.length;r++){
-    var ring = rings[r];
-    lctx.beginPath();
-    for (var i=0;i<ring.length;i++){
-      var p = map.latLngToContainerPoint([ring[i][1], ring[i][0]]);
-      if (i === 0) lctx.moveTo(p.x,p.y); else lctx.lineTo(p.x,p.y);
-    }
-    lctx.closePath();
-    lctx.fill();
-    // dilate the coast a little: better the fog spills onto the sea than
-    // leaves a bare strip inland
-    lctx.strokeStyle = '#fff';
-    lctx.lineWidth = 14;
-    lctx.lineJoin = 'round';
-    lctx.stroke();
+  lctx.strokeStyle = '#fff';
+  lctx.lineWidth = DILATE_LAND;
+  lctx.lineJoin = 'round';
+
+  var shapes = window.OW_STATE_SHAPES;
+  if (shapes){
+    for (var code in shapes) tracePolys(lctx, shapes[code]);
+  } else {
+    tracePolys(lctx, D.OUTLINE || []);
   }
   landDirty = false;
 }
@@ -545,6 +558,7 @@ function buildMask(now, dpr, size){
 
   for (var i=0;i<reveals.length;i++){
     var rv = reveals[i];
+    try {
 
     if (rv.t === 's'){
       if (rv.bb[2] < b.getSouth() || rv.bb[0] > b.getNorth() ||
@@ -647,6 +661,11 @@ function buildMask(now, dpr, size){
     mctx.fillStyle = g;
     mctx.beginPath(); mctx.arc(p.x,p.y,px*0.94,0,6.2832); mctx.fill();
     mctx.fillStyle = '#fff';
+
+    } catch (err) {
+      // one malformed reveal must never stop the rest of the map clearing
+      if (!rv._warned){ rv._warned = true; console.warn('Reveal skipped:', err); }
+    }
   }
   maskDirty = animating;   // keep rebuilding while something is opening
   buildEdge();
