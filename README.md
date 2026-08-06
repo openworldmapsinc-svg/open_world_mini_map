@@ -129,35 +129,6 @@ the default **Nightfall** style carries none, so the local map reads plainly and
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
 American ground is hidden. Travelling outside the US at local zoom restores ordinary fog everywhere.
 
-## Sound
-
-Every sound is synthesized in `app.js` — there are no audio files in the project by default. The
-discovery cue (wind, swell, chord, bell) is built in `playDiscovery()`; the Cartographer's throat
-clear, "hmm" and cackle are in `vocalize()`.
-
-**To use your own instead**, put files in a `sounds/` folder next to `index.html` and fill in the
-`SOUNDS` block near the top of `app.js`:
-
-```js
-var SOUNDS = {
-  discovery : 'sounds/discovery.mp3',   // reaching a city or state
-  secret    : 'sounds/secret.mp3',      // finding a secret
-  complete  : 'sounds/complete.mp3',    // a state fully explored
-  hmm       : 'sounds/hmm.mp3',         // the Cartographer appears
-  clear     : 'sounds/ahem.mp3',        // ...or clears his throat
-  cackle    : 'sounds/cackle.mp3',      // his laugh
-  volume    : 0.9
-};
-```
-
-Any entry left empty keeps the synthesized version, so you can replace one sound or all six. Files
-are fetched once, decoded, held in memory, and cached for offline use. If a file is missing or won't
-decode, the app logs a warning and falls back to the synthesized cue rather than going silent.
-
-.mp3, .m4a and .wav all play in Safari. **Length matters for the discovery cue**: the ceremony gives
-it about 4.5 seconds between naming the place and returning the camera, and the fog gust is timed to
-roughly 4.8 seconds — a discovery sound in the 3–5 second range will sit best.
-
 ## Editing what the Cartographer says
 
 Every line of his dialogue is in one block at the top of `app.js`, marked
