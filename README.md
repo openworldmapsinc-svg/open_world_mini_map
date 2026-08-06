@@ -8,13 +8,36 @@ The real world under fog. Travel it, and the map remembers.
 |---|---|
 | `index.html` | Shell — markup, art direction, HUD, cartographer scene, setup screens |
 | `data.js` | 128 cities and 48 secrets by state, state extents, US outline, realm frames |
+| `states.js` | Hand-authored outlines for all 50 states |
 | `app.js` | Fog engine, region unfogging, GPS, audio, wizard |
 | `manifest.json` | Home-screen install metadata |
 | `sw.js` | Caches the app and every tile you've loaded |
 | `cartographer.jpg` | The Cartographer's portrait |
 | `icon.svg`, `icon-180/192/512.png`, `icon-maskable-512.png` | App icons |
 
-All twelve files go in the repo root. No build step.
+All thirteen files go in the repo root. No build step.
+
+## How you play
+
+The Cartographer's first two questions set the shape of the game, each with a description on screen.
+
+**How would you like to play?**
+
+- **Explorer Mode** — the map follows you. Carry it as you travel and fog lifts around you in real
+  time. Needs location.
+- **Map Mode** — no tracking at all. A **Log your travels** button opens a conversation with the
+  Cartographer, you tick off where you have been, he says *"very good"* and laughs, and the world map
+  plays every discovery in turn. The camera is locked to world view throughout.
+
+**How do you explore?**
+
+- **By Place** — cities and towns are the prize, clearing 75/100/125 miles by size. Taking every
+  place in a state opens the whole state with a *Fully Explored* celebration. Secrets are in play.
+- **By State** — the fifty states are the prize. Set foot anywhere in one and it opens border to
+  border. No cities to configure, no secrets, and the places menu disappears entirely.
+
+The two are independent: Map Mode with By State means ticking off states from an armchair; Explorer
+Mode with By Place is the original game.
 
 ## First run
 
@@ -54,7 +77,11 @@ city in `data.js`).
 
 Circles freely run over towns nobody has reached yet, and that is the point — see **Towns** below.
 
-When every city in a state has been reached, that whole state falls open at once. Each state is divided among its
+When every city in a state has been reached, that whole state falls open at once — **along its real
+border**. States are clipped to hand-authored outlines (`states.js`, 811 vertices across 50 states,
+straight-line borders exact and coasts generalised) rather than bounding boxes. The old boxes cleared
+about 35% more ground than the state actually occupies; Florida, New Jersey and Michigan were the
+worst offenders, spilling fog clearance far out to sea. Each state is divided among its
 cities by proximity: every point in the state belongs to whichever city is nearest. So in
 California, San Francisco opens 57% of the state — everything north of roughly Fresno — Los
 Angeles opens 35% from the middle down, and San Diego opens the bottom 7%. The split is computed

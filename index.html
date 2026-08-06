@@ -137,6 +137,31 @@
   .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .stack{display:flex;flex-direction:column;gap:9px}
 
+
+  /* ---------- choosing how to play ---------- */
+  .choice{display:block;width:100%;text-align:left;margin:0 0 12px;padding:15px 16px;cursor:pointer;
+    background:linear-gradient(180deg,rgba(34,26,16,.6),rgba(14,11,7,.6));
+    border:1px solid rgba(217,180,92,.28);border-radius:3px;transition:border-color .2s,background .2s}
+  .choice .t{display:block;font-family:var(--display);font-size:16px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--gold)}
+  .choice .d{display:block;margin-top:8px;font-family:var(--body);font-size:14.5px;line-height:1.6;
+    color:var(--parchment-dim)}
+  .choice:active,.choice.on{border-color:var(--gold);background:rgba(217,180,92,.12)}
+  .choice.on .d{color:var(--parchment)}
+
+  /* ---------- what each mode hides ---------- */
+  #b-log{display:none}
+  .mode-map #b-log{display:grid}
+  .mode-map #b-center,.mode-map #pad,.mode-map #realmbar{display:none}
+  .mode-map .sim-only{display:none}
+  .clear-state #b-drop,.clear-state #b-secret,
+  .clear-state .tab[data-pane="p-poi"],.clear-state #p-poi{display:none}
+  .clear-state .poi-only{display:none}
+  .clear-state .tab{flex:1 1 100%}
+
+  /* a state fully taken speaks in green-gold */
+  #banner.complete .eyebrow{color:#b9c48a}
+  #banner.complete .name{color:#f4f0dc}
   /* ---------- discovery banner ---------- */
   #banner{position:absolute;left:0;right:0;top:28%;z-index:900;text-align:center;pointer-events:none;opacity:0}
   #banner.show{animation:unfurl 5s ease forwards}
@@ -389,7 +414,7 @@
     <div class="divider"></div>
     <div class="grid">
       <div><div class="k">Charted</div><div class="v" id="s-area">0 <small>mi²</small></div></div>
-      <div><div class="k">Cities</div><div class="v" id="s-poi">0 / 0</div></div>
+      <div><div class="k" id="s-poi-k">Cities</div><div class="v" id="s-poi">0 / 0</div></div>
       <div><div class="k">Signal</div><div class="v" id="s-acc">—</div></div>
       <div><div class="k" id="scale-view">local</div><div class="v" id="scale-val">—</div></div>
     </div>
@@ -407,6 +432,11 @@
     <button class="btn" id="b-drop" aria-label="Mark a place">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
         <path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="btn wide" id="b-log" aria-label="Log your travels">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z"/>
+        <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/></svg>
     </button>
     <button class="btn red" id="b-secret" aria-label="Hide a secret (testing)">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
@@ -466,7 +496,7 @@
     <div class="sect">Travel</div>
     <label class="field"><span class="lab">Trail clearing <span id="l-trail"></span></span>
       <input class="slim" type="range" id="f-trail" min="40" max="2000" step="10"></label>
-    <label class="field"><span class="lab">Arrival range <span id="l-arrive"></span></span>
+    <label class="field poi-only"><span class="lab">Arrival range <span id="l-arrive"></span></span>
       <input class="slim" type="range" id="f-arrive" min="200" max="24000" step="200"></label>
     <label class="field"><span class="lab">Shift the view at <span id="l-shift"></span></span>
       <input class="slim" type="range" id="f-shift" min="0.35" max="0.95" step="0.05"></label>
@@ -486,8 +516,8 @@
     <label class="switch"><span class="txt">Sound of discovery</span>
       <input type="checkbox" id="f-sound"><span class="sw"></span></label>
 
-    <div class="sect">Field test</div>
-    <label class="switch"><span class="txt">Travel by d-pad, not GPS</span>
+    <div class="sect sim-only">Field test</div>
+    <label class="switch sim-only"><span class="txt">Travel by d-pad, not GPS</span>
       <input type="checkbox" id="f-sim"><span class="sw"></span></label>
     <div class="note">Arrow keys or WASD move you; hold Shift to ride hard. Speed follows the map scale,
       so a continent takes about as long to cross as a city block. In this mode the atlas can carry you
@@ -528,7 +558,56 @@
   </div>
 </div>
 
+<div class="veil" id="logbook" style="display:none">
+  <div class="step" style="display:flex">
+    <div class="ask"><b>The Cartographer</b>
+      Where have your travels taken you?</div>
+    <div class="tools"><input class="search" id="log-search" type="text" placeholder="Find a place…"></div>
+    <div class="listwrap"><div id="log-list"></div></div>
+    <div class="foot">
+      <div class="count" id="log-count">Nowhere new</div>
+      <button class="go" id="log-done">That is all</button>
+    </div>
+  </div>
+</div>
+
 <div class="veil" id="setup">
+  <div class="step" id="step-mode" style="display:none">
+    <div class="ask"><b>The Cartographer</b>
+      Before we begin — how would you like to play?</div>
+    <div class="listwrap">
+      <button class="choice" data-key="mode" data-v="explorer">
+        <span class="t">Explorer Mode</span>
+        <span class="d">The map follows you. Carry it as you travel and the fog lifts around you as
+          you move, with places found the moment you reach them. Needs location, and rewards walking.</span>
+      </button>
+      <button class="choice" data-key="mode" data-v="map">
+        <span class="t">Map Mode</span>
+        <span class="d">No tracking, no location. Whenever you have been somewhere, tell me and I
+          will mark it. The map stays at world view so you always see the whole country filling in.</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="step" id="step-explore" style="display:none">
+    <div class="ask"><b>The Cartographer</b>
+      Good. And how do you explore?</div>
+    <div class="listwrap">
+      <button class="choice" data-key="clear" data-v="poi">
+        <span class="t">By Place</span>
+        <span class="d">Cities and towns are the prize. Each one you reach clears the country around
+          it — further for a great city than a small town — and when you have taken every place in a
+          state, the whole state opens. Secrets lie hidden for the sharp-eyed.</span>
+      </button>
+      <button class="choice" data-key="clear" data-v="state">
+        <span class="t">By State</span>
+        <span class="d">The fifty states are the prize. Set foot anywhere in one and the whole state
+          opens at once, border to border. Nothing to configure, no cities to manage, no secrets —
+          just the map of the realms, filling in state by state.</span>
+      </button>
+    </div>
+  </div>
+
   <div class="step" id="step1">
     <div class="ask"><b>The Cartographer</b>
       Greetings, adventurer. Tell me — what have you seen of this world so far?</div>
@@ -573,6 +652,7 @@
 </div>
 
 <script src="data.js"></script>
+<script src="states.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

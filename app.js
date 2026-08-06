@@ -16,6 +16,8 @@ var DEFAULTS = {
   shiftThreshold: 0.85,   // recenter when you pass this much of the view
   maxAccuracyM  : 150,
   pathOpacity   : 0.4,    // faint red trail; 0 hides it
+  mode          : 'explorer', // 'explorer' (tracked) or 'map' (logged by hand)
+  clear         : 'poi',      // 'poi' (cities open ground) or 'state' (whole states)
   style         : 'night',
   sim           : false,
   sound         : true,
@@ -104,6 +106,17 @@ function defaultSecrets(){
 }
 /* the cities that count — secrets and struck-out places never do */
 function openPois(){ return pois.filter(function(p){ return !p.secret; }); }
+function stateMode(){ return cfg.clear === 'state'; }
+function mapMode(){ return cfg.mode === 'map'; }
+
+/* In State Mode the fifty states stand in for the cities. */
+function statePois(){
+  return Object.keys(STATES).map(function(k){
+    var b = STATES[k].bbox;
+    return { id:'st-'+k, name:STATES[k].name, state:k, isState:true,
+             lat:(b[0]+b[2])/2, lng:(b[1]+b[3])/2, found:false };
+  });
+}
 
 function load(){
   var raw = null;
@@ -171,6 +184,28 @@ function areaOfRegion(rg){
   }
   return total;
 }
+var stateAreaCache = {};
+function areaOfState(code){
+  if (stateAreaCache[code] != null) return stateAreaCache[code];
+  var rings = (window.OW_STATE_SHAPES || {})[code], total = 0;
+  if (rings){
+    for (var r=0;r<rings.length;r++){
+      var ring = rings[r], sum = 0;
+      for (var i=0,j=ring.length-1;i<ring.length;j=i++){
+        var kx = Math.cos((ring[i][1]+ring[j][1])/2*Math.PI/180);
+        sum += (ring[j][0]*kx*111320)*(ring[i][1]*111320) -
+               (ring[i][0]*kx*111320)*(ring[j][1]*111320);
+      }
+      total += Math.abs(sum/2);
+    }
+  } else if (STATES[code]){
+    var b = STATES[code].bbox;
+    total = (b[2]-b[0])*111320 * (b[3]-b[1])*111320*Math.cos((b[0]+b[2])/2*Math.PI/180);
+  }
+  stateAreaCache[code] = total;
+  return total;
+}
+
 function rebuildCells(){
   trailCells = new Set(); areaCells = new Set();
   for (var i=0;i<reveals.length;i++){
@@ -184,6 +219,7 @@ function chartedSqMi(){
   for (var i=0;i<reveals.length;i++){
     var r = reveals[i];
     if (r.t === 'r') m2 += areaOfRegion(r);
+    else if (r.t === 's') m2 += areaOfState(r.code);
     else if (r.t === 'c' && r.r > 1500) m2 += Math.PI*r.r*r.r;
   }
   return m2 / 2589988.11;
@@ -192,12 +228,43 @@ function chartedSqMi(){
 /* ═══════════════════════════════════════════════════════════════
    REGIONS — a discovery claims the nearest slice of its state
    ═══════════════════════════════════════════════════════════════ */
+/* Which state is this point in? Outlines first; where two generalised
+   outlines overlap along a border, the one it sits deepest inside wins. */
 function stateOf(lat,lng){
-  for (var k in STATES){
+  var shapes = window.OW_STATE_SHAPES, hits = [], k;
+  if (shapes){
+    for (k in shapes) if (inShape(k, lat, lng)) hits.push(k);
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1){
+      var best = hits[0], deep = -1;
+      for (var i=0;i<hits.length;i++){
+        var d = edgeDepth(shapes[hits[i]], lat, lng);
+        if (d > deep){ deep = d; best = hits[i]; }
+      }
+      return best;
+    }
+  }
+  for (k in STATES){
     var b = STATES[k].bbox;
     if (lat >= b[0] && lat <= b[2] && lng >= b[1] && lng <= b[3]) return k;
   }
   return null;
+}
+
+function edgeDepth(rings, lat, lng){
+  var best = Infinity, kx = Math.cos(lat*Math.PI/180);
+  for (var r=0;r<rings.length;r++){
+    var ring = rings[r];
+    for (var i=0,j=ring.length-1;i<ring.length;j=i++){
+      var ax=(ring[j][0]-lng)*kx, ay=ring[j][1]-lat;
+      var bx=(ring[i][0]-lng)*kx, by=ring[i][1]-lat;
+      var dx=bx-ax, dy=by-ay, len=dx*dx+dy*dy;
+      var t = len ? Math.max(0, Math.min(1, -(ax*dx+ay*dy)/len)) : 0;
+      var px=ax+dx*t, py=ay+dy*t;
+      best = Math.min(best, px*px+py*py);
+    }
+  }
+  return Math.sqrt(best);
 }
 function flatDist(aLat,aLng,bLat,bLng){
   var k = Math.cos((aLat+bLat)*0.5*Math.PI/180);
@@ -218,37 +285,26 @@ function inShape(code,lat,lng){
   return hit;
 }
 
-/* A whole state falls open once every one of its cities has been reached. */
-function stateRegion(code){
-  var st = STATES[code]; if (!st) return null;
-  var b = st.bbox, s = b[0], w = b[1], n = b[2], e = b[3];
-  var stepLat = (n-s)/GRID, stepLng = (e-w)/GRID;
-  var runs = [];
-  for (var i=0;i<GRID;i++){
-    var lat = s + (i+0.5)*stepLat, start = null, prev = null;
-    for (var j=0;j<GRID;j++){
-      var lng = w + (j+0.5)*stepLng;
-      var mine = inShape(code, lat, lng);
-      if (mine && start === null) start = lng;
-      if (!mine && start !== null){ runs.push([r4(lat),r4(start),r4(prev)]); start = null; }
-      if (mine) prev = lng;
-      if (mine && j === GRID-1){ runs.push([r4(lat),r4(start),r4(lng)]); start = null; }
-    }
-  }
-  if (!runs.length) return null;
-  var c = L.latLng((s+n)/2, (w+e)/2);
-  return { t:'r', id:'state:'+code, h:stepLat, w:stepLng, runs:runs, cx:c.lat, cy:c.lng,
-           bb:[s-stepLat, w-stepLng, n+stepLat, e+stepLng],
-           rmax: c.distanceTo(L.latLng(n,e))*1.15 };
+/* A state opens along its own border, not a grid of boxes. */
+function stateReveal(code){
+  var shapes = window.OW_STATE_SHAPES;
+  var b = STATES[code] && STATES[code].bbox;
+  if (!b) return null;
+  var c = L.latLng((b[0]+b[2])/2, (b[1]+b[3])/2);
+  return { t:'s', code:code, cx:c.lat, cy:c.lng,
+           bb:[b[0]-0.2, b[1]-0.2, b[2]+0.2, b[3]+0.2],
+           rmax: c.distanceTo(L.latLng(b[2], b[3]))*1.2,
+           poly: !!(shapes && shapes[code]) };
+}
+function hasStateReveal(code){
+  return reveals.some(function(r){ return r.t === 's' && r.code === code; });
 }
 
 function stateComplete(code){
   var inState = openPois().filter(function(p){ return p.state === code; });
   return inState.length > 0 && inState.every(function(p){ return p.found; });
 }
-function hasStateReveal(code){
-  return reveals.some(function(r){ return r.id === 'state:'+code; });
-}
+
 
 function r4(v){ return Math.round(v*10000)/10000; }
 
@@ -391,6 +447,48 @@ function buildMask(now, dpr, size){
 
   for (var i=0;i<reveals.length;i++){
     var rv = reveals[i];
+
+    if (rv.t === 's'){
+      if (rv.bb[2] < b.getSouth() || rv.bb[0] > b.getNorth() ||
+          rv.bb[3] < b.getWest()  || rv.bb[1] > b.getEast()) continue;
+      var rings = (window.OW_STATE_SHAPES || {})[rv.code];
+      var box = STATES[rv.code] && STATES[rv.code].bbox;
+      var clipS = false;
+      if (rv.born){
+        var ts = (now - rv.born)/3000;
+        if (ts < 0){ animating = true; continue; }
+        if (ts < 1){
+          animating = true; clipS = true;
+          var ps = map.latLngToContainerPoint([rv.cx, rv.cy]);
+          var rs = (rv.rmax * (1-Math.pow(1-ts,2.2))) / m;
+          ps.x += Math.sin(ts*3.1) * rs * 0.08;
+          mctx.save(); mctx.beginPath(); mctx.arc(ps.x,ps.y,Math.max(1,rs),0,6.2832); mctx.clip();
+        } else delete rv.born;
+      }
+      mctx.shadowColor = 'rgba(255,255,255,1)';
+      mctx.shadowBlur  = 5;
+      mctx.beginPath();
+      if (rings){
+        for (var ri=0; ri<rings.length; ri++){
+          var ring = rings[ri];
+          for (var vi=0; vi<ring.length; vi++){
+            var vp = map.latLngToContainerPoint([ring[vi][1], ring[vi][0]]);
+            if (vi === 0) mctx.moveTo(vp.x, vp.y); else mctx.lineTo(vp.x, vp.y);
+          }
+          mctx.closePath();
+        }
+      } else if (box){
+        var nw2 = map.latLngToContainerPoint([box[2], box[1]]);
+        var se2 = map.latLngToContainerPoint([box[0], box[3]]);
+        mctx.rect(nw2.x, nw2.y, se2.x-nw2.x, se2.y-nw2.y);
+      }
+      mctx.fill();
+      // a hair of overspill, so no bare seam is left along the border
+      mctx.lineWidth = 3; mctx.strokeStyle = '#fff'; mctx.stroke();
+      mctx.shadowBlur = 0;
+      if (clipS) mctx.restore();
+      continue;
+    }
 
     if (rv.t === 'r'){
       if (rv.bb[2] < b.getSouth() || rv.bb[0] > b.getNorth() ||
@@ -625,6 +723,16 @@ function clearingRadius(poi){
 
 function revealPoi(poi, animate, atLat, atLng){
   if (animate) gustAt = performance.now();
+
+  if (poi.isState){                       // State Mode: the whole state at once
+    if (!hasStateReveal(poi.state)){
+      var sv = stateReveal(poi.state);
+      if (sv){ if (animate) sv.born = performance.now(); reveals.push(sv); }
+    }
+    maskDirty = true;
+    return;
+  }
+
   var lat = (atLat != null) ? atLat : poi.lat;
   var lng = (atLng != null) ? atLng : poi.lng;
   var r = clearingRadius(poi);
@@ -636,10 +744,13 @@ function revealPoi(poi, animate, atLat, atLng){
 
   // the last city in a state throws the whole state open
   if (!poi.secret && poi.state && stateComplete(poi.state) && !hasStateReveal(poi.state)){
-    var rg = stateRegion(poi.state);
-    if (rg){
-      if (animate) rg.born = performance.now() + 700;   // follows the circle
-      reveals.push(rg);
+    var sv2 = stateReveal(poi.state);
+    if (sv2){
+      if (animate){
+        sv2.born = performance.now() + 900;
+        discoveryQueue.push({ complete:true, state:poi.state, name:STATES[poi.state].name });
+      }
+      reveals.push(sv2);
     }
   }
   maskDirty = true;
@@ -824,6 +935,7 @@ function setWorldView(animate){ return setViewState('world', animate); }
 
 /* Pinching walks one step along the chain rather than jumping to an end. */
 function stepView(dir, animate){
+  if (mapMode()) return;                // Map Mode never leaves the world view
   var i = VIEW_ORDER.indexOf(view);
   var next = VIEW_ORDER[Math.max(0, Math.min(VIEW_ORDER.length-1, i + dir))];
   if (next === view) return;
@@ -836,13 +948,23 @@ function toggleView(){                     // double tap draws you in a step
   else stepView(-1, true);
 }
 
+function applyMode(){
+  document.body.classList.toggle('mode-map', mapMode());
+  document.body.classList.toggle('clear-state', stateMode());
+  if (stateMode()){                     // no places to manage: start on Expedition
+    var t = document.querySelector('.tab[data-pane="p-set"]');
+    if (t && !t.classList.contains('on')) t.click();
+  }
+  if (mapMode() && cfg.sim){ cfg.sim = false; if (simTimer){ clearInterval(simTimer); simTimer = null; } }
+}
+
 function applyViewState(){
   if (fogCanvas) fogCanvas.style.opacity = FOG_BY_VIEW[view] != null ? FOG_BY_VIEW[view] : 1;
   document.body.classList.toggle('view-local', view === 'local');
   document.body.classList.toggle('view-world', view === 'world');
   // the camera is yours to move except when the whole realm is framed
   if (map.dragging){
-    if (view === 'world') map.dragging.disable(); else map.dragging.enable();
+    if (view === 'world' || mapMode()) map.dragging.disable(); else map.dragging.enable();
   }
   $('b-center').classList.toggle('adrift', panned);
   maskDirty = landDirty = true;
@@ -1148,6 +1270,13 @@ function onPosition(lat,lng,acc){
    POINTS OF INTEREST
    ═══════════════════════════════════════════════════════════════ */
 function checkArrivals(lat,lng){
+  if (stateMode()){                       // setting foot in a state is enough
+    var code = stateOf(lat,lng);
+    if (!code) return;
+    var sp = pois.filter(function(p){ return p.state === code; })[0];
+    if (sp && !sp.found) discover(sp, lat, lng);
+    return;
+  }
   var here = L.latLng(lat,lng);
   for (var i=0;i<pois.length;i++){
     var p = pois[i];
@@ -1161,6 +1290,7 @@ function uiBusy(){
   return $('sheet').classList.contains('show') ||
          $('setup').style.display === 'flex' ||
          $('cart').style.display === 'flex' ||
+         $('logbook').style.display === 'flex' ||
          !$('gate').classList.contains('gone');
 }
 var discoveryQueue = [];
@@ -1185,7 +1315,7 @@ function runCeremony(){
   var p = discoveryQueue.shift();
   if (!p){ ceremony = false; return; }
   ceremony = true;
-  var back = (view === 'world') ? 'region' : view;
+  var back = mapMode() ? 'world' : (view === 'world' ? 'region' : view);
 
   setWorldView(true);                       // 1. pull back
 
@@ -1197,14 +1327,17 @@ function runCeremony(){
 
   setTimeout(function(){                    // 3. blow the fog off the ground
     gustAt = performance.now();
-    revealPoi(p, true, p.at ? p.at[0] : null, p.at ? p.at[1] : null);
-    drawPoiMarker(p, true);
+    if (!p.complete){
+      revealPoi(p, true, p.at ? p.at[0] : null, p.at ? p.at[1] : null);
+      drawPoiMarker(p, true);
+    }
   }, 1750);
 
   setTimeout(function(){                    // 4. back to the traveller
     if (discoveryQueue.length){ runCeremony(); return; }
     ceremony = false;
-    if (pos) setViewState(back, true);
+    if (mapMode()) setWorldView(true);
+    else if (pos) setViewState(back, true);
   }, 6200);
 }
 
@@ -1240,6 +1373,7 @@ function secretSvg(){
    reaches it, a lit and lettered town once they have. Secrets stay hidden. */
 function drawPoiMarker(p, isNew){
   if (poiLayer[p.id]){ map.removeLayer(poiLayer[p.id]); delete poiLayer[p.id]; }
+  if (p.isState) return;                  // a whole state marks itself
   if (p.secret && !p.found) return;
 
   var html, w, h, anchorY;
@@ -1295,10 +1429,22 @@ function toast(msg){
 function announce(p){
   var b = $('banner');
   var place = p.state && STATES[p.state] ? STATES[p.state].name : 'the wilds';
-  $('banner-eyebrow').textContent = p.secret ? 'Secret Discovered' : 'Discovered';
-  $('banner-name').textContent = p.name;
-  $('banner-sub').textContent = p.secret && p.city ? p.city + ', ' + place : place;
+  var eyebrow, name, sub;
+  if (p.complete){
+    eyebrow = 'Fully Explored'; name = p.name; sub = 'every place taken';
+  } else if (p.isState){
+    eyebrow = 'Realm Entered'; name = p.name; sub = 'the whole state opens';
+  } else if (p.secret){
+    eyebrow = 'Secret Discovered'; name = p.name;
+    sub = p.city ? p.city + ', ' + place : place;
+  } else {
+    eyebrow = 'Discovered'; name = p.name; sub = place;
+  }
+  $('banner-eyebrow').textContent = eyebrow;
+  $('banner-name').textContent = name;
+  $('banner-sub').textContent = sub;
   b.classList.toggle('secret', !!p.secret);
+  b.classList.toggle('complete', !!p.complete);
   b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
 }
 function setPlaceMode(kind){
@@ -1320,7 +1466,9 @@ function paintStats(){
     ' <small>mi²</small>';
   var open = openPois();
   $('s-poi').textContent = open.filter(function(p){ return p.found; }).length + ' / ' + open.length;
-  $('s-acc').innerHTML = pos ? ('±'+Math.round(pos.acc)+' <small>m</small>') : '—';
+  $('s-acc').innerHTML = mapMode() ? '<small>logged</small>'
+    : (pos ? ('±'+Math.round(pos.acc)+' <small>m</small>') : '—');
+  $('s-poi-k').textContent = stateMode() ? 'States' : 'Cities';
 }
 
 function groupByState(list){
@@ -1349,10 +1497,12 @@ function paintList(){
   if (!keys.length){ el.innerHTML = '<div class="empty"><b>Nothing by that name</b>Try another place or state.</div>'; return; }
 
   keys.forEach(function(k){
-    var h = document.createElement('div'); h.className = 'state-head';
-    var found = g[k].filter(function(p){ return p.found; }).length;
-    h.innerHTML = '<span>'+(STATES[k] ? STATES[k].name : 'Elsewhere')+'</span><em>'+found+'/'+g[k].length+'</em>';
-    el.appendChild(h);
+    if (!stateMode()){
+      var h = document.createElement('div'); h.className = 'state-head';
+      var found = g[k].filter(function(p){ return p.found; }).length;
+      h.innerHTML = '<span>'+(STATES[k] ? STATES[k].name : 'Elsewhere')+'</span><em>'+found+'/'+g[k].length+'</em>';
+      el.appendChild(h);
+    }
     g[k].forEach(function(p){
       var row = document.createElement('div');
       row.className = 'poi-row' + (p.found ? ' found' : '');
@@ -1455,11 +1605,32 @@ function cartographer(lines, buttonText, kind, then){
 function introSequence(){
   cartographer(
     ['Greetings, adventurer.',
-     'Tell me — what have you seen of this world so far?'],
-    'Show him', null,
-    function(){ openSetup(); showStep(1); }
+     'Before we begin — how would you like to play?'],
+    'Choose', null,
+    function(){ openSetup(); showStep('mode'); }
   );
 }
+function exploreQuestion(){
+  $('setup').style.display = 'none';
+  cartographer(
+    ['Good. And how do you explore?'],
+    'Choose', null,
+    function(){ $('setup').style.display = 'flex'; showStep('explore'); }
+  );
+}
+function seenQuestion(){
+  $('setup').style.display = 'none';
+  cartographer(
+    ['Now then — what have you seen of this world so far?'],
+    'Show him', null,
+    function(){ $('setup').style.display = 'flex'; showStep(1); paintSetupList(); }
+  );
+}
+/* State Mode has nothing to configure past this point. */
+function afterSeen(){
+  if (stateMode()) farewell(finishSetup); else neverQuestion();
+}
+
 function neverQuestion(){
   $('setup').style.display = 'none';
   cartographer(
@@ -1487,6 +1658,77 @@ function farewell(after){
   );
 }
 
+/* ── Logging travels (Map Mode) ───────────────────────────────────
+   The Cartographer asks where you have been; you tick them off; the
+   world map plays out every discovery in turn. */
+var logged = {};
+
+function logTravels(){
+  logged = {};
+  cartographer(
+    ['So — where have your travels taken you since last we spoke?'],
+    'Show him', null,
+    function(){ $('logbook').style.display = 'flex'; paintLogList(); }
+  );
+}
+
+function paintLogList(){
+  var q = ($('log-search').value || '').toLowerCase();
+  var el = $('log-list'); el.innerHTML = '';
+  var pool = openPois().filter(function(p){
+    if (p.found) return false;
+    if (!q) return true;
+    var st = p.state && STATES[p.state] ? STATES[p.state].name.toLowerCase() : '';
+    return p.name.toLowerCase().indexOf(q) >= 0 || st.indexOf(q) >= 0;
+  });
+  if (!pool.length){
+    el.innerHTML = '<div class="empty"><b>Nothing left unseen</b>You have taken every place on the map.</div>';
+    countLogged(); return;
+  }
+  var g = groupByState(pool);
+  Object.keys(g).sort(function(x,y){
+    return (STATES[x]?STATES[x].name:'zz') < (STATES[y]?STATES[y].name:'zz') ? -1 : 1;
+  }).forEach(function(k){
+    if (!stateMode()){
+      var h = document.createElement('div'); h.className = 'state-head';
+      h.innerHTML = '<span>'+(STATES[k]?STATES[k].name:'Elsewhere')+'</span>';
+      el.appendChild(h);
+    }
+    g[k].forEach(function(p){
+      var row = document.createElement('button');
+      row.className = 'check' + (logged[p.id] ? ' on' : '');
+      row.innerHTML = '<span class="box"></span><span class="nm"></span>';
+      row.querySelector('.nm').textContent = p.name;
+      row.onclick = function(){
+        logged[p.id] = !logged[p.id];
+        row.classList.toggle('on', !!logged[p.id]);
+        countLogged();
+      };
+      el.appendChild(row);
+    });
+  });
+  countLogged();
+}
+function countLogged(){
+  var n = Object.keys(logged).filter(function(k){ return logged[k]; }).length;
+  $('log-count').textContent = n === 0 ? 'Nowhere new' :
+    n + (n === 1 ? ' place logged' : ' places logged');
+}
+
+function commitLog(){
+  $('logbook').style.display = 'none';
+  var picked = pois.filter(function(p){ return logged[p.id]; });
+  logged = {};
+  if (!picked.length){ resumeCeremonies(); return; }
+  cartographer(['Very good.'], 'Show me', 'cackle', function(){
+    setTimeout(function(){ vocalize('cackle'); }, 100);
+    setTimeout(function(){                 // let the portrait clear first
+      picked.forEach(function(p){ discover(p); });
+      resumeCeremonies();
+    }, 620);
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════════
    SETUP — the first conversation
    ═══════════════════════════════════════════════════════════════ */
@@ -1497,9 +1739,10 @@ function openSetup(){
   paintSetupList();
 }
 function showStep(n){
-  $('step1').style.display = n === 1 ? 'flex' : 'none';
-  $('step3').style.display = n === 3 ? 'flex' : 'none';
-  $('step2').style.display = n === 2 ? 'flex' : 'none';
+  ['mode','explore',1,3,2].forEach(function(k){
+    var el = $('step-'+k) || $('step'+k);
+    if (el) el.style.display = (k === n) ? 'flex' : 'none';
+  });
 }
 
 var struck = {};
@@ -1703,6 +1946,7 @@ function finishSetup(){
     if (visited[p.id]){ p.found = true; revealPoi(p, false); any = true; }
   });
   setupDone = true; save();
+  applyMode();
   refreshPoiMarkers(); paintStats(); paintList();
   $('setup').style.display = 'none';
   maskDirty = true;
@@ -1725,6 +1969,12 @@ document.addEventListener('visibilitychange', function(){
 });
 
 function beginTracking(){
+  applyMode();
+  if (mapMode()){                      // nothing to track — the traveller reports in
+    setWorldView(false);
+    $('g-err').textContent = '';
+    return;
+  }
   keepAwake();
   if (cfg.sim){ startSim(); return; }
   if (!('geolocation' in navigator)){
@@ -1788,8 +2038,32 @@ function wire(){
 
   // setup wizard
   $('setup-search').oninput = paintSetupList;
-  $('s1-next').onclick = function(){ neverQuestion(); };
-  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); neverQuestion(); };
+  $('s1-next').onclick = function(){ afterSeen(); };
+  $('s1-none').onclick = function(){ visited = {}; paintSetupList(); afterSeen(); };
+  Array.prototype.forEach.call(document.querySelectorAll('.choice'), function(b){
+    b.onclick = function(){
+      var group = b.dataset.key, val = b.dataset.v;
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.choice[data-key="'+group+'"]'), function(x){
+          x.classList.toggle('on', x === b);
+        });
+      cfg[group] = val; save();
+      setTimeout(function(){
+        if (group === 'mode') exploreQuestion();
+        else {
+          applyMode();
+          // switching to State Mode swaps the whole set of places
+          if (stateMode()) pois = statePois(); else if (!pois.length) load();
+          refreshPoiMarkers();
+          seenQuestion();
+        }
+      }, 260);
+    };
+  });
+
+  $('b-log').onclick = logTravels;
+  $('log-search').oninput = paintLogList;
+  $('log-done').onclick = commitLog;
   $('never-search').oninput = paintNeverList;
   $('s3-next').onclick = function(){ secondQuestion(); };
   $('s3-none').onclick = function(){ struck = {}; paintNeverList(); secondQuestion(); };
@@ -1930,6 +2204,7 @@ function wire(){
    ═══════════════════════════════════════════════════════════════ */
 load();
 buildMap();
+applyMode();
 wire();
 refreshPoiMarkers();
 paintStats();
