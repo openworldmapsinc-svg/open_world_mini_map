@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v19';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v20';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -199,6 +199,7 @@ function load(){
     cfg       = Object.assign({}, DEFAULTS, raw.cfg || {});
     reveals   = Array.isArray(raw.reveals) ? raw.reveals : [];
     path      = Array.isArray(raw.path) ? raw.path : [];
+    reveals.forEach(function(r){ delete r.born; });   // repair older journals
     setupDone = !!raw.setupDone;
   }
   rebuildCells();
@@ -215,7 +216,14 @@ function save(){
             ? p
             : { id:p.id, found:p.found };
         }),
-        reveals: reveals,
+        // `born` is a performance.now() stamp — meaningless in the next
+        // session, and poisonous if kept: the clock restarts at zero, the
+        // reveal looks like it has not begun, and it is skipped forever.
+        reveals: reveals.map(function(r){
+          if (r.born == null) return r;
+          var c = {}; for (var k in r) if (k !== 'born') c[k] = r[k];
+          return c;
+        }),
         path: path
       }));
     } catch(e){ toast('The journal is full — some ground may not be remembered.'); }
@@ -523,6 +531,10 @@ function buildLand(){
 }
 
 function buildMask(now, dpr, size){
+  // a stamp further ahead than any real delay cannot be from this session
+  for (var q=0;q<reveals.length;q++)
+    if (reveals[q].born != null && reveals[q].born > now + 2000) delete reveals[q].born;
+
   mctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
   mctx.clearRect(0,0,size.x,size.y);
   mctx.fillStyle = '#fff';
