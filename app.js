@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v18';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v19';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -2313,6 +2313,25 @@ function wire(){
 
   /* Clears every cache and the service worker, then reloads from the server.
      Your journal is untouched. */
+  /* Runs the audit by hand and, if nothing needed fixing, says why —
+     usually a state has a place in it that has not been reached yet. */
+  $('a-repair').onclick = function(){
+    var fixed = auditStates();
+    if (fixed){
+      toast(fixed + (fixed === 1 ? ' state opened.' : ' states opened.'));
+      return;
+    }
+    var partial = [];
+    for (var code in STATES){
+      var inState = openPois().filter(function(p){ return p.state === code; });
+      var f = inState.filter(function(p){ return p.found; }).length;
+      if (f && f < inState.length) partial.push(STATES[code].name+' '+f+'/'+inState.length);
+    }
+    toast(partial.length
+      ? 'Not finished yet — ' + partial.slice(0,3).join(', ')
+      : 'Every finished state is already open.');
+  };
+
   $('a-update').onclick = function(){
     toast('Fetching the newest charts…');
     var jobs = [];
