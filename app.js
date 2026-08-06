@@ -26,6 +26,36 @@ var DEFAULTS = {
   simLng        : null
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   EVERYTHING THE CARTOGRAPHER SAYS
+   Edit freely. Each entry is an array of lines, joined with a space
+   and typed out one letter at a time. `btn` is the button label.
+   ═══════════════════════════════════════════════════════════════ */
+var LINES = {
+  greeting:  { say:['Greetings, adventurer.',
+                    'Before we begin — how would you like to play?'], btn:'Choose' },
+  explore:   { say:['Good. And how do you explore?'], btn:'Choose' },
+  seen:      { say:['Now then — what have you seen of this world so far?'], btn:'Show him' },
+  never:     { say:['Some ground is not worth the walking.',
+                    'Tell me — what will you never see?'], btn:'Strike them out' },
+  want:      { say:['And tell me, adventurer —',
+                    'what do you still want to see?'], btn:'Tell him' },
+  farewell:  { say:['Very good.', 'Good luck out there.'], btn:'Set out' },
+  logAsk:    { say:['So — where have your travels taken you since last we spoke?'], btn:'Show him' },
+  logDone:   { say:['Very good.'], btn:'Show me' }
+};
+
+/* Words used on the discovery banner. */
+var BANNER = {
+  poi:      'Discovered',
+  secret:   'Secret Discovered',
+  state:    'Realm Entered',
+  complete: 'Fully Explored',
+  completeSub: 'every place taken',
+  stateSub:    'the whole state opens',
+  wilds:       'the wilds'
+};
+
 var STYLES = {
   parchment:{ url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
               attr:'&copy; OpenStreetMap &copy; CARTO', sub:'abcd', max:20, filter:'aged' },
@@ -51,6 +81,8 @@ var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
 /* Circles are free to run over towns nobody has reached yet — that is how
    you learn a place is there. */
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
+var DILATE_LAND  = 12; // how far the land mask is grown past the coast, in px
+var DILATE_STATE = 22; // a cleared state grows further still, so no rim survives
 /* Three steps, closest first. Local is where you are standing, region is the
    day's travelling, world is the framed realm. */
 var VIEW_ORDER  = ['local','region','world'];
@@ -465,27 +497,23 @@ function buildMask(now, dpr, size){
           mctx.save(); mctx.beginPath(); mctx.arc(ps.x,ps.y,Math.max(1,rs),0,6.2832); mctx.clip();
         } else delete rv.born;
       }
-      mctx.shadowColor = 'rgba(255,255,255,1)';
-      mctx.shadowBlur  = 5;
-      mctx.beginPath();
+      /* No feather here on purpose. A soft edge on each state would only
+         half-clear the seam where two of them meet, leaving the ghost of a
+         border behind. Solid fills plus a fat stroke union cleanly, and the
+         blur on the carve softens the whole thing at the end. */
+      mctx.strokeStyle = '#fff';
+      mctx.lineWidth = DILATE_STATE;
+      mctx.lineJoin = 'round';
       if (rings){
-        for (var ri=0; ri<rings.length; ri++){
-          var ring = rings[ri];
-          for (var vi=0; vi<ring.length; vi++){
-            var vp = map.latLngToContainerPoint([ring[vi][1], ring[vi][0]]);
-            if (vi === 0) mctx.moveTo(vp.x, vp.y); else mctx.lineTo(vp.x, vp.y);
-          }
-          mctx.closePath();
-        }
+        tracePolys(mctx, rings);
       } else if (box){
         var nw2 = map.latLngToContainerPoint([box[2], box[1]]);
         var se2 = map.latLngToContainerPoint([box[0], box[3]]);
+        mctx.beginPath();
         mctx.rect(nw2.x, nw2.y, se2.x-nw2.x, se2.y-nw2.y);
+        mctx.fill(); mctx.stroke();
       }
-      mctx.fill();
-      // a hair of overspill, so no bare seam is left along the border
-      mctx.lineWidth = 3; mctx.strokeStyle = '#fff'; mctx.stroke();
-      mctx.shadowBlur = 0;
+      mctx.lineWidth = 1;
       if (clipS) mctx.restore();
       continue;
     }
@@ -588,7 +616,7 @@ function renderFog(now){
   cctx.fillRect(0,0,cw,ch);
 
   // a discovery sends a gust through the fog
-  gust = gustAt ? Math.max(0, 1 - (now - gustAt)/3200) : 0;
+  gust = gustAt ? Math.max(0, 1 - (now - gustAt)/4800) : 0;
   var blow = 1 + Math.pow(gust, 1.4) * 26;
   var drift = reduceMotion ? 0 : now;
 
@@ -676,6 +704,7 @@ function clipToLand(){
   return !!stateOf(c.lat, c.lng) || pointInOutline(c.lat, c.lng);
 }
 function pointInOutline(lat,lng){
+  if (window.OW_STATE_SHAPES) return !!stateOf(lat,lng);
   var rings = D.OUTLINE || [], hit = false;
   for (var r=0;r<rings.length;r++){
     var ring = rings[r];
@@ -765,18 +794,55 @@ function ensureAudio(){
     if (!AC) return null;
     audio = new AC();
   }
-  if (audio.state === 'suspended') audio.resume();
+  if (audio.state === 'suspended'){
+    audio.resume();
+    // Safari wants something actually played inside the gesture
+    try {
+      var b = audio.createBuffer(1, 1, audio.sampleRate);
+      var s = audio.createBufferSource();
+      s.buffer = b; s.connect(audio.destination); s.start(0);
+    } catch(e){}
+  }
   return audio;
 }
 
+/* Scheduling against a context that is still waking up silently drops the
+   sound — every cue goes through here so it waits for the context first. */
+function withAudio(fn){
+  var ac = ensureAudio();
+  if (!ac) return;
+  if (ac.state === 'running'){ fn(ac); return; }
+  var done = false;
+  var go = function(){ if (done) return; done = true; fn(ac); };
+  try {
+    ac.resume().then(function(){ setTimeout(go, 30); }).catch(function(){});
+  } catch(e){}
+  setTimeout(go, 350);                    // fallback if resume never settles
+}
+
+/* One quiet unlock on the first touch anywhere, in case a cue is queued
+   before the traveller has pressed anything we listen to. */
+(function(){
+  var unlock = function(){
+    ensureAudio();
+    document.removeEventListener('pointerdown', unlock, true);
+    document.removeEventListener('touchend', unlock, true);
+  };
+  document.addEventListener('pointerdown', unlock, true);
+  document.addEventListener('touchend', unlock, true);
+})();
+
 function playDiscovery(secret){
   if (!cfg.sound) return;
-  var ac = ensureAudio(); if (!ac) return;
+  withAudio(function(ac){ discoveryOn(ac, secret); });
+}
+function discoveryOn(ac, secret){
   var t0 = ac.currentTime + 0.02;
   var out = ac.createGain(); out.gain.value = 0.9; out.connect(ac.destination);
 
   // --- wind: filtered noise sweeping open, then away ---
-  var len = Math.floor(ac.sampleRate * 2.6);
+  var WIND = 5.6;                          // seconds of gust
+  var len = Math.floor(ac.sampleRate * WIND);
   var buf = ac.createBuffer(1, len, ac.sampleRate), ch = buf.getChannelData(0);
   var last = 0;
   for (var i=0;i<len;i++){
@@ -786,23 +852,26 @@ function playDiscovery(secret){
   }
   var src = ac.createBufferSource(); src.buffer = buf;
   var bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
-  bp.frequency.setValueAtTime(320, t0);
-  bp.frequency.exponentialRampToValueAtTime(2400, t0+0.9);
-  bp.frequency.exponentialRampToValueAtTime(420, t0+2.4);
+  bp.frequency.setValueAtTime(300, t0);
+  bp.frequency.exponentialRampToValueAtTime(2400, t0+1.0);
+  bp.frequency.exponentialRampToValueAtTime(1500, t0+2.6);
+  bp.frequency.exponentialRampToValueAtTime(380, t0+WIND-0.4);
   var wg = ac.createGain();
   wg.gain.setValueAtTime(0.0001, t0);
-  wg.gain.exponentialRampToValueAtTime(0.5, t0+0.5);
-  wg.gain.exponentialRampToValueAtTime(0.0001, t0+2.5);
+  wg.gain.exponentialRampToValueAtTime(0.52, t0+0.6);
+  wg.gain.exponentialRampToValueAtTime(0.34, t0+2.2);   // holds while the fog moves
+  wg.gain.exponentialRampToValueAtTime(0.20, t0+3.8);
+  wg.gain.exponentialRampToValueAtTime(0.0001, t0+WIND-0.1);
   src.connect(bp); bp.connect(wg); wg.connect(out);
-  src.start(t0); src.stop(t0+2.6);
+  src.start(t0); src.stop(t0+WIND);
 
   // --- low swell under it ---
   var sub = ac.createOscillator(); sub.type = 'sine'; sub.frequency.value = 55;
   var sg = ac.createGain();
   sg.gain.setValueAtTime(0.0001, t0+0.5);
   sg.gain.exponentialRampToValueAtTime(0.34, t0+0.72);
-  sg.gain.exponentialRampToValueAtTime(0.0001, t0+2.1);
-  sub.connect(sg); sg.connect(out); sub.start(t0+0.5); sub.stop(t0+2.2);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t0+3.1);
+  sub.connect(sg); sg.connect(out); sub.start(t0+0.5); sub.stop(t0+3.2);
 
   // --- the sting: an open fifth blooming into a major chord ---
   var delay = ac.createDelay(1.0); delay.delayTime.value = 0.28;
@@ -967,6 +1036,9 @@ function applyViewState(){
     if (view === 'world' || mapMode()) map.dragging.disable(); else map.dragging.enable();
   }
   $('b-center').classList.toggle('adrift', panned);
+  // at world view the marks lift above the fog so unreached places show through
+  var tp = map.getPane('towns');
+  if (tp) tp.style.zIndex = (view === 'world') ? 455 : 435;
   maskDirty = landDirty = true;
   paintScale();
 }
@@ -1059,7 +1131,9 @@ function drawPath(){
    Short, dry, wordless. Synthesized so there are no audio files to ship. */
 function vocalize(kind){
   if (!cfg.sound) return;
-  var ac = ensureAudio(); if (!ac) return;
+  withAudio(function(ac){ vocalizeOn(ac, kind); });
+}
+function vocalizeOn(ac, kind){
   var t0 = ac.currentTime + 0.03;
   var out = ac.createGain(); out.gain.value = 0.85; out.connect(ac.destination);
 
@@ -1379,17 +1453,19 @@ function drawPoiMarker(p, isNew){
   var html, w, h, anchorY;
   if (p.secret){
     w = 26; h = 30; anchorY = 27;
-    html = '<div class="poi secret'+(isNew?' new':'')+'">'+secretSvg()+'</div>';
+    html = '<div class="poi secret'+(isNew?' new':'')+'">'+secretSvg()+'<i class="pip red"></i></div>';
   } else if (!p.found){
     // unreached: a pale dot and nothing else. You can see something is there.
     var d = DOT_SIZE[p.size] || DOT_SIZE.m;
     w = h = d; anchorY = d/2;
     html = '<div class="dot"></div>';
   } else {
+    // reached: a lit town up close, a lit pip when the whole country is in view
     var dim = TOWN_SIZE[p.size] || TOWN_SIZE.m;
     w = dim[0]; h = dim[1]; anchorY = h - 2;
     html = '<div class="town lit'+(isNew?' new':'')+'">'+ townSvg(true) +
-             '<span class="nm">'+p.name.replace(/</g,'&lt;')+'</span></div>';
+             '<span class="nm">'+p.name.replace(/</g,'&lt;')+'</span>'+
+             '<i class="pip"></i></div>';
   }
   poiLayer[p.id] = L.marker([p.lat,p.lng], {
     pane: p.secret ? 'markerPane' : 'towns',
@@ -1428,17 +1504,17 @@ function toast(msg){
 }
 function announce(p){
   var b = $('banner');
-  var place = p.state && STATES[p.state] ? STATES[p.state].name : 'the wilds';
+  var place = p.state && STATES[p.state] ? STATES[p.state].name : BANNER.wilds;
   var eyebrow, name, sub;
   if (p.complete){
-    eyebrow = 'Fully Explored'; name = p.name; sub = 'every place taken';
+    eyebrow = BANNER.complete; name = p.name; sub = BANNER.completeSub;
   } else if (p.isState){
-    eyebrow = 'Realm Entered'; name = p.name; sub = 'the whole state opens';
+    eyebrow = BANNER.state; name = p.name; sub = BANNER.stateSub;
   } else if (p.secret){
-    eyebrow = 'Secret Discovered'; name = p.name;
+    eyebrow = BANNER.secret; name = p.name;
     sub = p.city ? p.city + ', ' + place : place;
   } else {
-    eyebrow = 'Discovered'; name = p.name; sub = place;
+    eyebrow = BANNER.poi; name = p.name; sub = place;
   }
   $('banner-eyebrow').textContent = eyebrow;
   $('banner-name').textContent = name;
@@ -1604,25 +1680,21 @@ function cartographer(lines, buttonText, kind, then){
 
 function introSequence(){
   cartographer(
-    ['Greetings, adventurer.',
-     'Before we begin — how would you like to play?'],
-    'Choose', null,
+    LINES.greeting.say, LINES.greeting.btn, null,
     function(){ openSetup(); showStep('mode'); }
   );
 }
 function exploreQuestion(){
   $('setup').style.display = 'none';
   cartographer(
-    ['Good. And how do you explore?'],
-    'Choose', null,
+    LINES.explore.say, LINES.explore.btn, null,
     function(){ $('setup').style.display = 'flex'; showStep('explore'); }
   );
 }
 function seenQuestion(){
   $('setup').style.display = 'none';
   cartographer(
-    ['Now then — what have you seen of this world so far?'],
-    'Show him', null,
+    LINES.seen.say, LINES.seen.btn, null,
     function(){ $('setup').style.display = 'flex'; showStep(1); paintSetupList(); }
   );
 }
@@ -1634,26 +1706,21 @@ function afterSeen(){
 function neverQuestion(){
   $('setup').style.display = 'none';
   cartographer(
-    ['Some ground is not worth the walking.',
-     'Tell me — what will you never see?'],
-    'Strike them out', null,
+    LINES.never.say, LINES.never.btn, null,
     function(){ $('setup').style.display = 'flex'; showStep(3); paintNeverList(); }
   );
 }
 function secondQuestion(){
   $('setup').style.display = 'none';
   cartographer(
-    ['And tell me, adventurer —',
-     'what do you still want to see?'],
-    'Tell him', null,
+    LINES.want.say, LINES.want.btn, null,
     function(){ $('setup').style.display = 'flex'; showStep(2); paintAdded(); }
   );
 }
 function farewell(after){
   $('setup').style.display = 'none';
   cartographer(
-    ['Very good.', 'Good luck out there.'],
-    'Set out', 'cackle',
+    LINES.farewell.say, LINES.farewell.btn, 'cackle',
     function(){ setTimeout(function(){ vocalize('cackle'); }, 120); after(); }
   );
 }
@@ -1666,8 +1733,7 @@ var logged = {};
 function logTravels(){
   logged = {};
   cartographer(
-    ['So — where have your travels taken you since last we spoke?'],
-    'Show him', null,
+    LINES.logAsk.say, LINES.logAsk.btn, null,
     function(){ $('logbook').style.display = 'flex'; paintLogList(); }
   );
 }
@@ -1720,7 +1786,7 @@ function commitLog(){
   var picked = pois.filter(function(p){ return logged[p.id]; });
   logged = {};
   if (!picked.length){ resumeCeremonies(); return; }
-  cartographer(['Very good.'], 'Show me', 'cackle', function(){
+  cartographer(LINES.logDone.say, LINES.logDone.btn, 'cackle', function(){
     setTimeout(function(){ vocalize('cackle'); }, 100);
     setTimeout(function(){                 // let the portrait clear first
       picked.forEach(function(p){ discover(p); });
@@ -2064,6 +2130,11 @@ function wire(){
   $('b-log').onclick = logTravels;
   $('log-search').oninput = paintLogList;
   $('log-done').onclick = commitLog;
+  $('log-none').onclick = function(){        // nothing to report — just close
+    logged = {};
+    $('logbook').style.display = 'none';
+    setTimeout(resumeCeremonies, 300);
+  };
   $('never-search').oninput = paintNeverList;
   $('s3-next').onclick = function(){ secondQuestion(); };
   $('s3-none').onclick = function(){ struck = {}; paintNeverList(); secondQuestion(); };

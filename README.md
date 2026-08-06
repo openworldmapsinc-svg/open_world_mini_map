@@ -129,12 +129,28 @@ the default **Nightfall** style carries none, so the local map reads plainly and
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
 American ground is hidden. Travelling outside the US at local zoom restores ordinary fog everywhere.
 
+## Editing what the Cartographer says
+
+Every line of his dialogue is in one block at the top of `app.js`, marked
+**EVERYTHING THE CARTOGRAPHER SAYS** — a `LINES` object keyed by moment (`greeting`, `explore`,
+`seen`, `never`, `want`, `farewell`, `logAsk`, `logDone`), each with the lines he speaks and the
+label on his button. The `BANNER` object just below holds the discovery banner wording.
+
+The headings and option descriptions printed on the setup screens themselves live in `index.html`,
+in the `.ask` and `.choice` blocks.
+
 ## Towns
 
-Every city sits **beneath the fog**, so you see it only once its ground is clear. An unreached place
-is nothing more than a **pale dot** — no name, no detail, just a mark that something is there. Reach
-it and it becomes a **lit town**: gold, lamps burning, a pennant on the tower, its name lettered
-underneath. It kindles to life the moment you arrive.
+Every city sits **beneath the fog**, so up close you see it only once its ground is clear. An
+unreached place is nothing more than a **pale dot** — no name, no detail, just a mark that something
+is there. Reach it and it becomes a **lit town**: gold, lamps burning, a pennant on the tower, its
+name lettered underneath. It kindles to life the moment you arrive.
+
+At **world view** all of that collapses to pips — a lit gold dot for a place you have reached, red
+for a secret, and a small faint dot for one you have not. Towns and lettering would be unreadable
+clutter at that distance. The pips also sit above the fog at world view, so unreached places show
+faintly through it: you can make out where the country's places are without being told anything
+about them.
 
 This makes a discovery worth more than the ground it clears. Your circle spills over neighbouring
 places and shows you that they exist without naming them or giving you credit. Roughly nine of every
