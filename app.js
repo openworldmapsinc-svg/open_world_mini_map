@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v26';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v27';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -378,6 +378,24 @@ function hasStateReveal(code){
    traveller staring at fog they have earned. */
 function auditStates(){
   var n = 0, sv;
+
+  /* A city is marked found the moment you arrive, but its circle is cut
+     during the ceremony. Close the app mid-ceremony and the two fall out of
+     step, leaving a place charted with no ground cleared. Put it right. */
+  if (!stateMode()){
+    for (var c=0;c<pois.length;c++){
+      var pc = pois[c];
+      if (!pc.found || pc.isState) continue;
+      var hasCircle = reveals.some(function(r){ return r.t === 'c' && r.id === pc.id; });
+      if (!hasCircle){
+        var at = pc.at || [pc.lat, pc.lng];
+        var rr = clearingRadius(pc);
+        reveals.push({ t:'c', lat:r4(at[0]), lng:r4(at[1]), r:Math.round(rr), id:pc.id });
+        stampArea(at[0], at[1], rr);
+        n++;
+      }
+    }
+  }
   if (stateMode()){
     for (var i=0;i<pois.length;i++){
       var p = pois[i];
@@ -460,10 +478,10 @@ function initFog(){
 
   noise = [
     // tint      scale  drift (slow)     parallax  alpha  breathe  spin
-    { img:makeNoise(256, 3, 3, 0.30, 250), tint:'#080b12', scale:4.6, vx: 0.00030, vy: 0.00016, par:0.020, alpha:0.62, br:0.030, spin: 0.0000012 },
-    { img:makeNoise(256, 4, 4, 0.34, 300), tint:'#c3c9da', scale:2.7, vx: 0.00072, vy:-0.00026, par:0.035, alpha:0.34, br:0.045, spin:-0.0000008 },
-    { img:makeNoise(256, 6, 4, 0.40, 340), tint:'#dfe4f0', scale:1.5, vx:-0.00115, vy: 0.00042, par:0.055, alpha:0.26, br:0.060, spin: 0.0000016 },
-    { img:makeNoise(256, 5, 3, 0.44, 300), tint:'#0a0d15', scale:2.1, vx: 0.00048, vy: 0.00056, par:0.045, alpha:0.30, br:0.050, spin:-0.0000013 }
+    { img:makeNoise(256, 3, 3, 0.30, 250), tint:'#141a26', scale:4.6, vx: 0.00030, vy: 0.00016, par:0.020, alpha:0.48, br:0.030, spin: 0.0000012 },
+    { img:makeNoise(256, 4, 4, 0.34, 300), tint:'#c9cfe0', scale:2.7, vx: 0.00072, vy:-0.00026, par:0.035, alpha:0.34, br:0.045, spin:-0.0000008 },
+    { img:makeNoise(256, 6, 4, 0.40, 340), tint:'#e4e9f4', scale:1.5, vx:-0.00115, vy: 0.00042, par:0.055, alpha:0.28, br:0.060, spin: 0.0000016 },
+    { img:makeNoise(256, 5, 3, 0.44, 300), tint:'#171d29', scale:2.1, vx: 0.00048, vy: 0.00056, par:0.045, alpha:0.24, br:0.050, spin:-0.0000013 }
   ].map(function(l){
     var c = document.createElement('canvas');
     c.width = c.height = l.img.width;
@@ -630,12 +648,14 @@ function buildMask(now, dpr, size){
         mctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
       } else if (rings){
         tracePolys(mctx, rings);
-      } else if (box){
-        var nw2 = map.latLngToContainerPoint([box[2], box[1]]);
-        var se2 = map.latLngToContainerPoint([box[0], box[3]]);
-        mctx.beginPath();
-        mctx.rect(nw2.x, nw2.y, se2.x-nw2.x, se2.y-nw2.y);
-        mctx.fill(); mctx.stroke();
+      } else {
+        /* No outline for this state. The old fallback filled its bounding
+           box, which spills far across every neighbour — worse than leaving
+           it fogged. Warn once and leave it alone. */
+        if (!rv._warned){
+          rv._warned = true;
+          console.warn('No outline for ' + rv.code + ' — states.js missing or incomplete.');
+        }
       }
       mctx.lineWidth = 1;
       if (clipS) mctx.restore();
@@ -741,7 +761,7 @@ function renderFog(now){
   cctx.setTransform(1,0,0,1,0,0);
   cctx.globalAlpha = 1;
   cctx.globalCompositeOperation = 'source-over';
-  cctx.fillStyle = '#141720';
+  cctx.fillStyle = '#1e2434';
   cctx.fillRect(0,0,cw,ch);
 
   // a discovery can send a gust through the fog — off by default, because
@@ -791,7 +811,7 @@ function renderFog(now){
   var vg = cctx.createLinearGradient(0,0,0,ch);
   vg.addColorStop(0,   'rgba(210,216,232,.10)');
   vg.addColorStop(0.45,'rgba(0,0,0,0)');
-  vg.addColorStop(1,   'rgba(6,8,14,.34)');
+  vg.addColorStop(1,   'rgba(12,16,26,.26)');
   cctx.fillStyle = vg;
   cctx.fillRect(0,0,cw,ch);
 
@@ -2446,10 +2466,16 @@ function wire(){
      usually a state has a place in it that has not been reached yet. */
   $('a-repair').onclick = function(){
     var fixed = auditStates();
-    if (fixed){
-      toast(fixed + (fixed === 1 ? ' state opened.' : ' states opened.'));
-      return;
-    }
+    var tally = { t:0, c:0, s:0, r:0 };
+    reveals.forEach(function(r){ if (tally[r.t] != null) tally[r.t]++; });
+    var outlines = window.OW_STATE_SHAPES
+      ? Object.keys(window.OW_STATE_SHAPES).length + ' outlines'
+      : 'NO OUTLINES';
+    var report = outlines + ' · ' + tally.c + ' circles, ' + tally.s + ' states, ' +
+                 tally.t + ' trail' + (fixed ? ' · repaired ' + fixed : '');
+    toast(report);
+    console.log('Open World Maps —', report, reveals);
+    if (fixed) return;
     var partial = [];
     for (var code in STATES){
       var inState = openPois().filter(function(p){ return p.state === code; });
