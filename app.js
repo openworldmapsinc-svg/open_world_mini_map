@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v28';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v29';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -85,10 +85,6 @@ var BANNER = {
 };
 
 var STYLES = {
-  parchment:{ url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-              attr:'&copy; OpenStreetMap &copy; CARTO', sub:'abcd', max:20, filter:'aged' },
-  ink:      { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-              attr:'&copy; OpenStreetMap &copy; CARTO', sub:'abcd', max:20, filter:'ink' },
   wild:     { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
               attr:'&copy; OpenTopoMap (CC-BY-SA)', sub:'abc', max:17, filter:'aged' },
   night:    { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -201,6 +197,7 @@ function load(){
 
   if (raw){
     cfg       = Object.assign({}, DEFAULTS, raw.cfg || {});
+    if (!STYLES[cfg.style]) cfg.style = DEFAULTS.style;   // a retired style
     reveals   = Array.isArray(raw.reveals) ? raw.reveals : [];
     path      = Array.isArray(raw.path) ? raw.path : [];
     reveals.forEach(function(r){ delete r.born; });   // repair older journals
@@ -1493,23 +1490,16 @@ function buildMap(){
 /* Far out, the world is drawn as a chart of the realms. Close in, it is
    the plain modern map of wherever you are standing. */
 function applyEra(z){
-  var t = Math.max(0, Math.min(1, (z - TINT_FULL) / (TINT_GONE - TINT_FULL))); // 0 = myth, 1 = real
+  var t = Math.max(0, Math.min(1, (z - TINT_FULL) / (TINT_GONE - TINT_FULL))); // 0 = far out, 1 = close in
   var pane = map.getPane('tilePane');
-  var s = STYLES[cfg.style] || STYLES.parchment;
-  if (s.filter === 'aged'){
-    pane.style.filter = 'sepia(' + (0.82 - 0.72*t).toFixed(2) + ') ' +
-                        'saturate(' + (0.62 + 0.42*t).toFixed(2) + ') ' +
-                        'contrast(' + (1.16 - 0.12*t).toFixed(2) + ') ' +
-                        'brightness(' + (0.90 + 0.08*t).toFixed(2) + ') ' +
-                        'hue-rotate(' + Math.round(-12 + 12*t) + 'deg)';
-  } else if (s.filter === 'ink'){
-    pane.style.filter = 'sepia(' + (0.9 - 0.6*t).toFixed(2) + ') saturate(.6) contrast(1.2) brightness(.9)';
-  } else pane.style.filter = '';
-
+  var s = STYLES[cfg.style] || STYLES.night;
+  pane.style.filter = s.filter === 'aged'
+    ? 'sepia(' + (0.82 - 0.72*t).toFixed(2) + ') saturate(' + (0.62 + 0.42*t).toFixed(2) + ')'
+    : '';
 }
 
 function setTiles(key){
-  var s = STYLES[key] || STYLES.parchment;
+  var s = STYLES[key] || STYLES.night;
   if (tiles) map.removeLayer(tiles);
   tiles = L.tileLayer(s.url, {
     attribution:s.attr, subdomains:s.sub||'abc',
