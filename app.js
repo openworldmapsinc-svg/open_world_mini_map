@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v24';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v25';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -108,6 +108,8 @@ var POI_MILES    = 100; // fallback when a city carries no size
 var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
 /* Circles are free to run over towns nobody has reached yet — that is how
    you learn a place is there. */
+var FOG_GUST  = false; // a discovery used to blow the whole fog across the
+                       // screen. Set true to bring that back.
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
 var DILATE_LAND  = 12; // how far the land mask is grown past the coast, in px
 var DILATE_STATE = 22; // how far a cleared state grows — but only into open sea
@@ -742,8 +744,9 @@ function renderFog(now){
   cctx.fillStyle = '#141720';
   cctx.fillRect(0,0,cw,ch);
 
-  // a discovery sends a gust through the fog
-  gust = gustAt ? Math.max(0, 1 - (now - gustAt)/4800) : 0;
+  // a discovery can send a gust through the fog — off by default, because
+  // the whole sky lurching is more distracting than dramatic
+  gust = (FOG_GUST && gustAt) ? Math.max(0, 1 - (now - gustAt)/4800) : 0;
   var blow = 1 + Math.pow(gust, 1.4) * 26;
   var drift = reduceMotion ? 0 : now;
 
@@ -847,7 +850,8 @@ function startLoop(){
   if (rafId) return;
   var step = function(now){
     rafId = requestAnimationFrame(step);
-    if (now - lastFrame < (reduceMotion ? 200 : (gust > 0 ? 33 : 45))) return;
+    // a reveal opening needs smooth frames; drifting fog does not
+    if (now - lastFrame < (reduceMotion ? 200 : (maskDirty ? 33 : 45))) return;
     lastFrame = now;
     renderFog(now);
   };
