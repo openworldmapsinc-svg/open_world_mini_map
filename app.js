@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v25';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v26';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -750,14 +750,20 @@ function renderFog(now){
   var blow = 1 + Math.pow(gust, 1.4) * 26;
   var drift = reduceMotion ? 0 : now;
 
-  /* Parallax follows where you are in the world, not what zoom you are at —
-     otherwise every zoom change would fling the fog across the screen. The
-     value is eased toward its target so even a teleport only drifts it. */
-  var ref = map.project(map.getCenter(), 8);
+  /* Parallax follows the TRAVELLER, not the camera. Keying it to the map
+     centre meant every zoom-out — which recentres from you to the middle of
+     the country — dragged the fog across the screen a hundred times faster
+     than it drifts. Moving the camera is not the world moving. Projected at a
+     fixed zoom so the scale you are viewing at changes nothing, eased slowly,
+     and capped per frame so even a teleport only ever becomes a slow drift. */
+  var anchorLL = pos ? L.latLng(pos.lat, pos.lng) : map.getCenter();
+  var ref = map.project(anchorLL, 8);
   if (parX === null){ parX = ref.x; parY = ref.y; }
-  var lerp = Math.min(1, (now - lastFrame + 16) / 900);
-  parX += (ref.x - parX) * lerp;
-  parY += (ref.y - parY) * lerp;
+  var ease = 0.05, capPar = 1.5;
+  var ddx = (ref.x - parX) * ease, ddy = (ref.y - parY) * ease;
+  ddx = Math.max(-capPar, Math.min(capPar, ddx));
+  ddy = Math.max(-capPar, Math.min(capPar, ddy));
+  parX += ddx; parY += ddy;
   var diag = Math.sqrt(cw*cw + ch*ch);
 
   for (var i=0;i<noise.length;i++){
