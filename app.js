@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v27';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v28';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -636,12 +636,21 @@ function buildMask(now, dpr, size){
         sctx.setTransform(1,0,0,1,0,0);
         sctx.globalCompositeOperation = 'destination-out';
         sctx.drawImage(unionCanvas, 0, 0);
-        // 3. put this state itself back, with a hair of overlap so two cleared
-        //    neighbours leave no seam between them
+        // 3. put this state itself back. Note the canvas IGNORES lineWidth = 0,
+        //    so asking for no overlap has to be said with the stroke colour —
+        //    setting the width alone leaves the fat stroke in place and undoes
+        //    everything step 2 just achieved.
         sctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
         sctx.globalCompositeOperation = 'source-over';
-        sctx.lineWidth = SEAM_STATE;
+        if (SEAM_STATE > 0){
+          sctx.lineWidth = SEAM_STATE;
+          sctx.strokeStyle = '#fff';
+        } else {
+          sctx.lineWidth = 0.01;
+          sctx.strokeStyle = 'rgba(0,0,0,0)';
+        }
         tracePolys(sctx, rings);
+        sctx.strokeStyle = '#fff';
         sctx.setTransform(1,0,0,1,0,0);
         mctx.setTransform(1,0,0,1,0,0);
         mctx.drawImage(stateCanvas, 0, 0);
@@ -2464,6 +2473,7 @@ function wire(){
      Your journal is untouched. */
   /* Runs the audit by hand and, if nothing needed fixing, says why —
      usually a state has a place in it that has not been reached yet. */
+  /* Runs the audit by hand and reports what is actually in the journal. */
   $('a-repair').onclick = function(){
     var fixed = auditStates();
     var tally = { t:0, c:0, s:0, r:0 };
@@ -2471,20 +2481,17 @@ function wire(){
     var outlines = window.OW_STATE_SHAPES
       ? Object.keys(window.OW_STATE_SHAPES).length + ' outlines'
       : 'NO OUTLINES';
-    var report = outlines + ' · ' + tally.c + ' circles, ' + tally.s + ' states, ' +
-                 tally.t + ' trail' + (fixed ? ' · repaired ' + fixed : '');
-    toast(report);
-    console.log('Open World Maps —', report, reveals);
-    if (fixed) return;
     var partial = [];
     for (var code in STATES){
       var inState = openPois().filter(function(p){ return p.state === code; });
       var f = inState.filter(function(p){ return p.found; }).length;
       if (f && f < inState.length) partial.push(STATES[code].name+' '+f+'/'+inState.length);
     }
-    toast(partial.length
-      ? 'Not finished yet — ' + partial.slice(0,3).join(', ')
-      : 'Every finished state is already open.');
+    var report = outlines + ' · ' + tally.c + ' circles, ' + tally.s + ' states, ' +
+      tally.t + ' trail' + (fixed ? ' · repaired ' + fixed : '') +
+      (partial.length ? ' · part-done: ' + partial.slice(0,2).join(', ') : '');
+    toast(report);
+    console.log('Open World Maps —', report, reveals);
   };
 
   $('a-update').onclick = function(){
