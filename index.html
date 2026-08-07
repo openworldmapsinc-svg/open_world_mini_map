@@ -11,7 +11,7 @@
 <meta name="description" content="Open World Maps — the real world under fog, revealed by travelling it.">
 <title>OpenWorld — Open World Maps</title>
 
-<link rel="manifest" href="manifest.json?v22">
+<link rel="manifest" href="manifest.json?v23">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 
@@ -46,8 +46,12 @@
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%;margin:0;overflow:hidden;background:var(--ink);color:var(--parchment);
-    font-family:var(--body);font-size:16px;overscroll-behavior:none;touch-action:manipulation}
-  #map{position:absolute;inset:0;background:#0b0906}
+    font-family:var(--body);font-size:16px;overscroll-behavior:none;touch-action:manipulation;
+    -webkit-text-size-adjust:100%}
+  /* pinned so a stray drag cannot scroll the page out from under the map */
+  body{position:fixed;width:100%;left:0;top:0}
+  #map{position:absolute;inset:0;background:#0b0906;touch-action:none}
+  .leaflet-container{touch-action:none}
   .leaflet-pane canvas{transition:opacity .5s ease}
 
   /* the tile tint is set from app.js and eases off as you zoom in */
@@ -669,8 +673,8 @@
   </div>
 </div>
 
-<script src="data.js?v22"></script>
-<script src="states.js?v22"></script>
-<script src="app.js?v22"></script>
+<script src="data.js?v23"></script>
+<script src="states.js?v23"></script>
+<script src="app.js?v23"></script>
 </body>
 </html>

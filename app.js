@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v22';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v23';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -906,6 +906,37 @@ function withAudio(fn){
   setTimeout(go, 350);                    // fallback if resume never settles
 }
 
+/* ── Keeping the page itself from zooming ─────────────────────────
+   iOS ignores user-scalable=no, so a stray gesture can still scale and
+   pan the visual viewport, leaving the interface shrunken and shifted.
+   If that happens, snap it back. */
+(function(){
+  var vv = window.visualViewport;
+  if (!vv) return;
+  var meta = document.querySelector('meta[name=viewport]');
+  var busy = false;
+
+  function snapBack(){
+    if (busy || !meta) return;
+    busy = true;
+    var base = meta.getAttribute('content');
+    meta.setAttribute('content', base + ', minimum-scale=1');
+    setTimeout(function(){
+      meta.setAttribute('content', base);
+      window.scrollTo(0, 0);
+      busy = false;
+    }, 60);
+  }
+
+  var check = function(){
+    // height alone changes when the keyboard opens — that is not a zoom
+    if (vv.scale > 1.01 || Math.abs(vv.offsetLeft) > 1 || Math.abs(vv.pageLeft) > 1) snapBack();
+  };
+  vv.addEventListener('resize', check);
+  vv.addEventListener('scroll', check);
+  window.addEventListener('orientationchange', function(){ setTimeout(check, 400); });
+})();
+
 /* One quiet unlock on the first touch anywhere, in case a cue is queued
    before the traveller has pressed anything we listen to. */
 (function(){
@@ -1137,23 +1168,32 @@ function applyViewState(){
 function bindViewGestures(){
   var el = map.getContainer(), start = 0, fired = false;
 
+  /* These are deliberately non-passive: a two-finger gesture on the map must
+     belong to us, not to Safari's page zoom. Left to itself iOS scales the
+     visual viewport and the whole interface slides sideways. */
   el.addEventListener('touchstart', function(e){
-    if (e.touches.length !== 2) return;
+    if (e.touches.length < 2) return;
+    e.preventDefault();
     var dx = e.touches[0].clientX - e.touches[1].clientX;
     var dy = e.touches[0].clientY - e.touches[1].clientY;
     start = Math.hypot(dx,dy); fired = false;
-  }, { passive:true });
+  }, { passive:false });
 
   el.addEventListener('touchmove', function(e){
-    if (e.touches.length !== 2 || !start || fired) return;
+    if (e.touches.length < 2) return;
+    e.preventDefault();
+    if (!start || fired) return;
     var dx = e.touches[0].clientX - e.touches[1].clientX;
     var dy = e.touches[0].clientY - e.touches[1].clientY;
     var ratio = Math.hypot(dx,dy)/start;
     if (ratio > 1.22){ fired = true; stepView(-1); }
     else if (ratio < 0.82){ fired = true; stepView(1); }
-  }, { passive:true });
+  }, { passive:false });
 
-  el.addEventListener('touchend', function(){ start = 0; }, { passive:true });
+  el.addEventListener('touchend', function(e){
+    if (e.touches.length >= 1) e.preventDefault();
+    start = 0;
+  }, { passive:false });
 
   var wheelLock = 0;
   el.addEventListener('wheel', function(e){
@@ -2449,7 +2489,9 @@ function wire(){
     if (e.key === 'Shift') simSprint = false;
     if (cfg.sim && keymap[e.key]) simVec = {x:0,y:0};
   });
-  document.addEventListener('gesturestart', function(e){ e.preventDefault(); });
+  ['gesturestart','gesturechange','gestureend'].forEach(function(g){
+    document.addEventListener(g, function(e){ e.preventDefault(); }, { passive:false });
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════
