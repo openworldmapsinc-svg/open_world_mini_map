@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v23';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v24';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -110,7 +110,8 @@ var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
    you learn a place is there. */
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
 var DILATE_LAND  = 12; // how far the land mask is grown past the coast, in px
-var DILATE_STATE = 22; // a cleared state grows further still, so no rim survives
+var DILATE_STATE = 22; // how far a cleared state grows — but only into open sea
+var SEAM_STATE   = 0;  // ...and not at all into a neighbouring state
 /* Three steps, closest first. Local is where you are standing, region is the
    day's travelling, world is the framed realm. */
 var VIEW_ORDER  = ['local','region','world'];
@@ -128,6 +129,7 @@ var pois = [], reveals = [], trailCells = new Set(), areaCells = new Set();
 var setupDone = false, removed = [];
 
 var map, tiles, fogCanvas, fctx, maskCanvas, mctx, cloudCanvas, cctx, landCanvas, lctx, edgeCanvas, ectx;
+var unionCanvas, uctx, stateCanvas, sctx;
 var noise = [], maskDirty = true, landDirty = true, rafId = null, lastFrame = 0;
 var canBlur = false;
 var youMarker, accCircle, poiLayer = {}, pathLines = [];
@@ -449,6 +451,8 @@ function initFog(){
   cloudCanvas = document.createElement('canvas'); cctx = cloudCanvas.getContext('2d');
   landCanvas = document.createElement('canvas');  lctx = landCanvas.getContext('2d');
   edgeCanvas = document.createElement('canvas');  ectx = edgeCanvas.getContext('2d');
+  unionCanvas = document.createElement('canvas'); uctx = unionCanvas.getContext('2d');
+  stateCanvas = document.createElement('canvas'); sctx = stateCanvas.getContext('2d');
   try { fctx.filter = 'blur(2px)'; canBlur = fctx.filter !== 'none'; fctx.filter = 'none'; }
   catch(e){ canBlur = false; }
 
@@ -484,8 +488,10 @@ function sizeCanvases(){
     fogCanvas.style.width = s.x+'px'; fogCanvas.style.height = s.y+'px';
     cloudCanvas.width  = Math.max(2, Math.round(s.x*0.5));
     cloudCanvas.height = Math.max(2, Math.round(s.y*0.5));
-    maskCanvas.width  = landCanvas.width  = edgeCanvas.width  = Math.max(2, Math.round(s.x*MASK_SCALE));
-    maskCanvas.height = landCanvas.height = edgeCanvas.height = Math.max(2, Math.round(s.y*MASK_SCALE));
+    maskCanvas.width = landCanvas.width = edgeCanvas.width =
+      unionCanvas.width = stateCanvas.width = Math.max(2, Math.round(s.x*MASK_SCALE));
+    maskCanvas.height = landCanvas.height = edgeCanvas.height =
+      unionCanvas.height = stateCanvas.height = Math.max(2, Math.round(s.y*MASK_SCALE));
     maskDirty = landDirty = true;
   }
   return { s:s, dpr:dpr };
@@ -540,6 +546,19 @@ function buildLand(){
   } else {
     tracePolys(lctx, D.OUTLINE || []);
   }
+
+  /* The same fifty shapes with no dilation at all. A cleared state is grown
+     outward for the coastline's sake, then everything covered by this union
+     is taken back off — so the growth reaches into open sea but stops at a
+     neighbour's border. */
+  uctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
+  uctx.clearRect(0,0,unionCanvas.width/MASK_SCALE, unionCanvas.height/MASK_SCALE);
+  if (shapes){
+    uctx.fillStyle = '#fff';
+    uctx.lineWidth = 0.01;
+    uctx.strokeStyle = 'rgba(0,0,0,0)';
+    for (var code2 in shapes) tracePolys(uctx, shapes[code2]);
+  }
   landDirty = false;
 }
 
@@ -584,7 +603,30 @@ function buildMask(now, dpr, size){
       mctx.strokeStyle = '#fff';
       mctx.lineWidth = DILATE_STATE;
       mctx.lineJoin = 'round';
-      if (rings){
+      if (rings && window.OW_STATE_SHAPES){
+        // 1. the state, grown generously
+        sctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
+        sctx.globalCompositeOperation = 'source-over';
+        sctx.clearRect(0,0,stateCanvas.width/MASK_SCALE, stateCanvas.height/MASK_SCALE);
+        sctx.fillStyle = '#fff'; sctx.strokeStyle = '#fff'; sctx.lineJoin = 'round';
+        sctx.lineWidth = DILATE_STATE;
+        tracePolys(sctx, rings);
+        // 2. take back everything that belongs to any state — the growth now
+        //    only survives over sea and beyond the border
+        sctx.setTransform(1,0,0,1,0,0);
+        sctx.globalCompositeOperation = 'destination-out';
+        sctx.drawImage(unionCanvas, 0, 0);
+        // 3. put this state itself back, with a hair of overlap so two cleared
+        //    neighbours leave no seam between them
+        sctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
+        sctx.globalCompositeOperation = 'source-over';
+        sctx.lineWidth = SEAM_STATE;
+        tracePolys(sctx, rings);
+        sctx.setTransform(1,0,0,1,0,0);
+        mctx.setTransform(1,0,0,1,0,0);
+        mctx.drawImage(stateCanvas, 0, 0);
+        mctx.setTransform(MASK_SCALE,0,0,MASK_SCALE,0,0);
+      } else if (rings){
         tracePolys(mctx, rings);
       } else if (box){
         var nw2 = map.latLngToContainerPoint([box[2], box[1]]);
