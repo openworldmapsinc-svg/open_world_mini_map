@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v21';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v22';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -856,15 +856,16 @@ function revealPoi(poi, animate, atLat, atLng){
   reveals.push(c);
   stampArea(lat, lng, r);
 
-  // the last city in a state throws the whole state open
+  /* The last city in a state throws the whole state open — but that deserves
+     its own ceremony, so only queue it here. The reveal itself is held back
+     until that ceremony plays, otherwise the state would peel open behind the
+     city's announcement and there would be nothing left to celebrate. */
   if (!poi.secret && poi.state && stateComplete(poi.state) && !hasStateReveal(poi.state)){
-    var sv2 = stateReveal(poi.state);
-    if (sv2){
-      if (animate){
-        sv2.born = performance.now() + 900;
-        discoveryQueue.push({ complete:true, state:poi.state, name:STATES[poi.state].name });
-      }
-      reveals.push(sv2);
+    if (animate){
+      discoveryQueue.push({ complete:true, state:poi.state, name:STATES[poi.state].name });
+    } else {
+      var sv2 = stateReveal(poi.state);
+      if (sv2) reveals.push(sv2);          // silent: setup, or the audit
     }
   }
   maskDirty = true;
@@ -1535,7 +1536,12 @@ function runCeremony(){
 
   setTimeout(function(){                    // 3. blow the fog off the ground
     gustAt = performance.now();
-    if (!p.complete){
+    if (p.complete){
+      if (!hasStateReveal(p.state)){
+        var sv = stateReveal(p.state);
+        if (sv){ sv.born = performance.now(); reveals.push(sv); maskDirty = true; }
+      }
+    } else {
       revealPoi(p, true, p.at ? p.at[0] : null, p.at ? p.at[1] : null);
       drawPoiMarker(p, true);
     }
