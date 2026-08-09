@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v32';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v33';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -224,22 +224,33 @@ function load(){
 }
 
 /* A belt to go with those braces: if the list on hand does not match the
-   chosen mode, rebuild it. */
+   chosen mode, rebuild it — from what is in memory, never by re-reading the
+   journal. Reading it here would drag the previous game's settings back in,
+   because the write of the new choice is still sitting in the debounce. */
 function syncPoiSet(){
-  if (stateMode() && pois.some(function(p){ return !p.isState; })){
-    var keep = {};
-    pois.forEach(function(p){ if (p.isState && p.found) keep[p.id] = true; });
+  var mismatched = stateMode()
+    ? pois.some(function(p){ return !p.isState; })
+    : pois.some(function(p){ return p.isState; });
+  if (!mismatched) return;
+
+  var keep = {};
+  pois.forEach(function(p){ if (p.found) keep[p.id] = true; });
+
+  if (stateMode()){
     pois = statePois().map(function(p){ if (keep[p.id]) p.found = true; return p; });
-    if (map) refreshPoiMarkers();
-  } else if (!stateMode() && pois.some(function(p){ return p.isState; })){
-    load();
-    if (map) refreshPoiMarkers();
+  } else {
+    pois = defaultPois().concat(defaultSecrets())
+      .filter(function(p){ return removed.indexOf(p.id) < 0; })
+      .map(function(p){ if (keep[p.id]) p.found = true; return p; });
   }
+  if (map) refreshPoiMarkers();
 }
 
-function save(){
+function saveNow(){ save(true); }
+
+function save(now){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(function(){
+  var write = function(){
     try {
       localStorage.setItem(STORE, JSON.stringify({
         cfg: cfg, setupDone: setupDone, removed: removed,
@@ -259,7 +270,8 @@ function save(){
         path: path
       }));
     } catch(e){ toast('The journal is full — some ground may not be remembered.'); }
-  }, 700);
+  };
+  if (now) write(); else saveTimer = setTimeout(write, 700);
 }
 
 function cellKey(lat,lng){
@@ -2637,13 +2649,13 @@ function wire(){
         document.querySelectorAll('.choice[data-key="'+group+'"]'), function(x){
           x.classList.toggle('on', x === b);
         });
-      cfg[group] = val; save();
+      cfg[group] = val;
+      saveNow();                       // written before anything can read it back
       setTimeout(function(){
         if (group === 'mode') exploreQuestion();
         else {
-          applyMode();
-          // switching to State Mode swaps the whole set of places
-          if (stateMode()) pois = statePois(); else if (!pois.length) load();
+          applyMode();                 // rebuilds the place list to match
+          saveNow();
           refreshPoiMarkers();
           seenQuestion();
         }
