@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v29';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v30';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -43,7 +43,10 @@ var LINES = {
                     'what do you still want to see?'], btn:'Tell him' },
   farewell:  { say:['Very good.', 'Good luck out there.'], btn:'Set out' },
   logAsk:    { say:['So — where have your travels taken you since last we spoke?'], btn:'Show him' },
-  logDone:   { say:['Very good.'], btn:'Show me' }
+  logDone:   { say:['Very good.'], btn:'Show me' },
+  call:      { say:['And what can I do for you, traveller?'], btn:'Speak' },
+  undoAsk:   { say:['Which of these did you not truly walk?'], btn:'Show him' },
+  undoDone:  { say:['If you say so, traveller.'], btn:'Very well' }
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -57,6 +60,7 @@ var LINES = {
      SOUNDS.hmm             the Cartographer appears (thinking)
      SOUNDS.clear           the Cartographer appears (throat clear)
      SOUNDS.cackle          his laugh
+     SOUNDS.snort           his unimpressed snort
 
    Paths are relative to the app, e.g. 'sounds/discovery.mp3'.
    Use .mp3, .m4a or .wav — Safari plays all three. Keep them small;
@@ -70,6 +74,7 @@ var SOUNDS = {
   hmm       : '',
   clear     : '',
   cackle    : '',
+  snort     : '',
   volume    : 0.9
 };
 
@@ -134,7 +139,7 @@ var youMarker, accCircle, poiLayer = {}, pathLines = [];
 var path = [];                    // array of segments, each an array of [lat,lng]
 var pos = null, anchor = null, watchId = null;
 var simPos = null, simVec = {x:0,y:0}, simSprint = false, simTimer = null;
-var simHalted = false;       // a discovery stops the reins until you take them again
+var simHalted = false, simFast = false;       // a discovery stops the reins until you take them again
 var placeMode = false, saveTimer = null, wakeLock = null;
 var view = 'world';          // 'local', 'region' or 'world'
 var panned = false;          // the traveller has moved the camera by hand
@@ -181,29 +186,54 @@ function statePois(){
 function load(){
   var raw = null;
   try { raw = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch(e){}
-  var saved = (raw && Array.isArray(raw.pois)) ? raw.pois : [];
-  var byId = {}; saved.forEach(function(p){ byId[p.id] = p; });
 
-  removed = (raw && Array.isArray(raw.removed)) ? raw.removed : [];
-  pois = defaultPois().concat(defaultSecrets())
-    .filter(function(p){ return removed.indexOf(p.id) < 0; })
-    .map(function(p){
-      var s = byId[p.id];
-      if (s){ p.found = !!s.found; delete byId[p.id]; }
-      return p;
-    });
-  // keep anything the traveller added themselves
-  Object.keys(byId).forEach(function(k){ if (k.charAt(0) === 'u') pois.push(byId[k]); });
-
+  /* Settings first. Which places exist at all depends on how you chose to
+     explore, so cfg has to be read before the list is built — getting this
+     backwards rebuilt the cities every launch, whatever mode you were in. */
   if (raw){
     cfg       = Object.assign({}, DEFAULTS, raw.cfg || {});
     if (!STYLES[cfg.style]) cfg.style = DEFAULTS.style;   // a retired style
     reveals   = Array.isArray(raw.reveals) ? raw.reveals : [];
     path      = Array.isArray(raw.path) ? raw.path : [];
-    reveals.forEach(function(r){ delete r.born; });   // repair older journals
+    reveals.forEach(function(r){ delete r.born; });       // repair older journals
     setupDone = !!raw.setupDone;
   }
+
+  var saved = (raw && Array.isArray(raw.pois)) ? raw.pois : [];
+  var byId = {}; saved.forEach(function(p){ byId[p.id] = p; });
+  removed = (raw && Array.isArray(raw.removed)) ? raw.removed : [];
+
+  if (stateMode()){
+    pois = statePois().map(function(p){
+      var s = byId[p.id]; if (s) p.found = !!s.found;
+      return p;
+    });
+  } else {
+    pois = defaultPois().concat(defaultSecrets())
+      .filter(function(p){ return removed.indexOf(p.id) < 0; })
+      .map(function(p){
+        var s = byId[p.id];
+        if (s){ p.found = !!s.found; delete byId[p.id]; }
+        return p;
+      });
+    // keep anything the traveller added themselves
+    Object.keys(byId).forEach(function(k){ if (k.charAt(0) === 'u') pois.push(byId[k]); });
+  }
   rebuildCells();
+}
+
+/* A belt to go with those braces: if the list on hand does not match the
+   chosen mode, rebuild it. */
+function syncPoiSet(){
+  if (stateMode() && pois.some(function(p){ return !p.isState; })){
+    var keep = {};
+    pois.forEach(function(p){ if (p.isState && p.found) keep[p.id] = true; });
+    pois = statePois().map(function(p){ if (keep[p.id]) p.found = true; return p; });
+    if (map) refreshPoiMarkers();
+  } else if (!stateMode() && pois.some(function(p){ return p.isState; })){
+    load();
+    if (map) refreshPoiMarkers();
+  }
 }
 
 function save(){
@@ -721,7 +751,7 @@ function buildMask(now, dpr, size){
     var px = rr/m;
     // a walked corridor is a few hundred metres wide — at fifty miles out that
     // is a third of a pixel, so hold it to a visible thread instead
-    if (rv.t === 't') px = Math.max(px, 4);
+    if (rv.t === 't') px = Math.max(px, 3);
     if (px < 0.4) continue;
     p.x += px*sway; p.y -= px*lift;
     var g = mctx.createRadialGradient(p.x,p.y,px*0.45, p.x,p.y,px*0.94);
@@ -1217,6 +1247,7 @@ function toggleView(){                     // double tap draws you in a step
 }
 
 function applyMode(){
+  syncPoiSet();
   document.body.classList.toggle('mode-map', mapMode());
   document.body.classList.toggle('clear-state', stateMode());
   if (stateMode()){                     // no places to manage: start on Expedition
@@ -1432,6 +1463,16 @@ function vocalizeOn(ac, kind){
       hs.start(when); hs.stop(when+0.09);
     }
 
+  } else if (kind === 'snort'){             // an unimpressed exhale
+    var ns = noiseSrc(0.3);
+    throat(ns, t0, 0.13, 520, 1500, 0.20);
+    ns.start(t0); ns.stop(t0+0.16);
+    var no = ac.createOscillator(); no.type = 'sawtooth';
+    no.frequency.setValueAtTime(128, t0);
+    no.frequency.exponentialRampToValueAtTime(84, t0+0.22);
+    throat(no, t0, 0.24, 380, 900, 0.17);
+    no.start(t0); no.stop(t0+0.3);
+
   } else {                                  // hmm — mouth closed, two slow steps
     var m = ac.createOscillator(); m.type = 'sawtooth';
     m.frequency.setValueAtTime(112, t0);
@@ -1611,6 +1652,7 @@ function uiBusy(){
          $('setup').style.display === 'flex' ||
          $('cart').style.display === 'flex' ||
          $('logbook').style.display === 'flex' ||
+         $('errand').style.display === 'flex' ||
          !$('gate').classList.contains('gone');
 }
 var discoveryQueue = [];
@@ -2033,6 +2075,108 @@ function countLogged(){
     n + (n === 1 ? ' place logged' : ' places logged');
 }
 
+/* ── Calling the Cartographer (Explorer Mode) ─────────────────────
+   For when the world and the journal disagree: add a travel that never
+   registered, or strike one that should not have. */
+var unlogged = {};
+
+function callCartographer(){
+  cartographer(LINES.call.say, LINES.call.btn, 'cackle', function(){
+    $('errand').style.display = 'flex';
+    showErrand('choice');
+  });
+}
+function showErrand(which){
+  $('errand').style.display = 'flex';
+  $('errand-choice').style.display = which === 'choice' ? 'flex' : 'none';
+  $('errand-undo').style.display   = which === 'undo'   ? 'flex' : 'none';
+}
+function closeErrand(){ $('errand').style.display = 'none'; }
+
+function errandAdd(){
+  closeErrand();
+  logged = {};
+  $('logbook').style.display = 'flex';
+  paintLogList();
+}
+function errandUndo(){
+  unlogged = {};
+  showErrand('undo');
+  paintUndoList();
+}
+
+function paintUndoList(){
+  var q = ($('undo-search').value || '').toLowerCase();
+  var el = $('undo-list'); el.innerHTML = '';
+  var pool = pois.filter(function(p){
+    if (!p.found || p.secret) return false;
+    if (!q) return true;
+    var st = p.state && STATES[p.state] ? STATES[p.state].name.toLowerCase() : '';
+    return p.name.toLowerCase().indexOf(q) >= 0 || st.indexOf(q) >= 0;
+  });
+  if (!pool.length){
+    el.innerHTML = '<div class="empty"><b>Nothing logged yet</b>There is nothing here to take back.</div>';
+    countUnlogged(); return;
+  }
+  var g = groupByState(pool);
+  Object.keys(g).sort(function(x,y){
+    return (STATES[x]?STATES[x].name:'zz') < (STATES[y]?STATES[y].name:'zz') ? -1 : 1;
+  }).forEach(function(k){
+    if (!stateMode()){
+      var h = document.createElement('div'); h.className = 'state-head';
+      h.innerHTML = '<span>'+(STATES[k]?STATES[k].name:'Elsewhere')+'</span>';
+      el.appendChild(h);
+    }
+    g[k].forEach(function(p){
+      var row = document.createElement('button');
+      row.className = 'check strike' + (unlogged[p.id] ? ' on' : '');
+      row.innerHTML = '<span class="box"></span><span class="nm"></span>';
+      row.querySelector('.nm').textContent = p.name;
+      row.onclick = function(){
+        unlogged[p.id] = !unlogged[p.id];
+        row.classList.toggle('on', !!unlogged[p.id]);
+        countUnlogged();
+      };
+      el.appendChild(row);
+    });
+  });
+  countUnlogged();
+}
+function countUnlogged(){
+  var n = Object.keys(unlogged).filter(function(k){ return unlogged[k]; }).length;
+  $('undo-count').textContent = n === 0 ? 'Nothing struck' :
+    n + (n === 1 ? ' travel struck' : ' travels struck');
+}
+
+/* Undo a logged travel: forget the place, and take back the ground it
+   cleared — including a state it had completed. */
+function unlogPlace(p){
+  p.found = false; p.at = null;
+  reveals = reveals.filter(function(r){ return r.id !== p.id; });
+  if (p.isState){
+    reveals = reveals.filter(function(r){ return !(r.t === 's' && r.code === p.state); });
+  } else if (p.state && !stateComplete(p.state)){
+    reveals = reveals.filter(function(r){ return !(r.t === 's' && r.code === p.state); });
+  }
+  drawPoiMarker(p, false);
+}
+
+function commitUndo(){
+  var picked = pois.filter(function(p){ return unlogged[p.id]; });
+  unlogged = {};
+  closeErrand();
+  cartographer(LINES.undoDone.say, LINES.undoDone.btn, 'snort', function(){
+    setTimeout(function(){ vocalize('snort'); }, 90);
+    picked.forEach(unlogPlace);
+    rebuildCells();
+    maskDirty = true;
+    save(); paintStats(); paintList();
+    if (picked.length) toast(picked.length === 1
+      ? picked[0].name + ' struck from the journal.'
+      : picked.length + ' travels struck from the journal.');
+  });
+}
+
 function commitLog(){
   $('logbook').style.display = 'none';
   var picked = pois.filter(function(p){ return logged[p.id]; });
@@ -2328,7 +2472,7 @@ function startSim(lat,lng){
   if (simTimer) clearInterval(simTimer);
   simTimer = setInterval(function(){
     if (!simVec.x && !simVec.y) return;
-    var perSec = viewHalfMeters()/7 * (simSprint ? 4 : 1);
+    var perSec = viewHalfMeters()/7 * (simSprint ? 4 : 1) * (simFast ? 10 : 1);
     var step = perSec/8;
     simPos.lat += (simVec.y*step)/111320;
     simPos.lng += (simVec.x*step)/(111320*Math.cos(simPos.lat*Math.PI/180));
@@ -2382,6 +2526,13 @@ function wire(){
   });
 
   $('b-log').onclick = logTravels;
+  $('b-call').onclick = callCartographer;
+  $('errand-add').onclick = errandAdd;
+  $('errand-remove').onclick = errandUndo;
+  $('errand-close').onclick = closeErrand;
+  $('undo-search').oninput = paintUndoList;
+  $('undo-done').onclick = commitUndo;
+  $('undo-none').onclick = function(){ unlogged = {}; closeErrand(); };
   $('log-search').oninput = paintLogList;
   $('log-done').onclick = commitLog;
   $('log-none').onclick = function(){        // nothing to report — just close
@@ -2461,29 +2612,6 @@ function wire(){
 
   /* Clears every cache and the service worker, then reloads from the server.
      Your journal is untouched. */
-  /* Runs the audit by hand and, if nothing needed fixing, says why —
-     usually a state has a place in it that has not been reached yet. */
-  /* Runs the audit by hand and reports what is actually in the journal. */
-  $('a-repair').onclick = function(){
-    var fixed = auditStates();
-    var tally = { t:0, c:0, s:0, r:0 };
-    reveals.forEach(function(r){ if (tally[r.t] != null) tally[r.t]++; });
-    var outlines = window.OW_STATE_SHAPES
-      ? Object.keys(window.OW_STATE_SHAPES).length + ' outlines'
-      : 'NO OUTLINES';
-    var partial = [];
-    for (var code in STATES){
-      var inState = openPois().filter(function(p){ return p.state === code; });
-      var f = inState.filter(function(p){ return p.found; }).length;
-      if (f && f < inState.length) partial.push(STATES[code].name+' '+f+'/'+inState.length);
-    }
-    var report = outlines + ' · ' + tally.c + ' circles, ' + tally.s + ' states, ' +
-      tally.t + ' trail' + (fixed ? ' · repaired ' + fixed : '') +
-      (partial.length ? ' · part-done: ' + partial.slice(0,2).join(', ') : '');
-    toast(report);
-    console.log('Open World Maps —', report, reveals);
-  };
-
   $('a-update').onclick = function(){
     toast('Fetching the newest charts…');
     var jobs = [];
@@ -2519,24 +2647,29 @@ function wire(){
     };
     inp.click();
   };
-  $('a-redo').onclick = function(){
-    visited = {}; struck = {};
-    pois.forEach(function(p){ if (p.found && !p.secret) visited[p.id] = true; });
-    openSheet(false); introSequence();
-  };
-  $('a-reset').onclick = function(){
-    if (!confirm('Let the fog return? Every charted mile is forgotten.')) return;
+  /* One door out of the current game: forget the map and hear the
+     Cartographer's questions again. */
+  $('a-new').onclick = function(){
+    if (!confirm('Begin a new journey? Every charted mile is forgotten, every place ' +
+                 'becomes unseen, and the Cartographer will ask his questions again.')) return;
     reveals = []; trailCells = new Set(); areaCells = new Set();
     path = []; drawPath();
     pois.forEach(function(p){ p.found = false; p.at = null; });
+    visited = {}; struck = {}; added = []; logged = {}; unlogged = {};
+    discoveryQueue = []; ceremony = false;
     refreshPoiMarkers(); maskDirty = true; save(); paintStats(); paintList();
-    toast('The world is dark again.');
+    openSheet(false);
+    setTimeout(introSequence, 320);
   };
 
   // d-pad + keys
   var dirs = { n:{x:0,y:1}, s:{x:0,y:-1}, e:{x:1,y:0}, w:{x:-1,y:0}, stop:{x:0,y:0} };
   Array.prototype.forEach.call(document.querySelectorAll('#pad button'), function(b){
-    b.onclick = function(){ simHalted = false; simVec = Object.assign({}, dirs[b.dataset.dir]); };
+    b.onclick = function(){
+      simHalted = false;
+      simFast = b.dataset.fast === '1';
+      simVec = Object.assign({}, dirs[b.dataset.dir]);
+    };
   });
   var keymap = { ArrowUp:'n', ArrowDown:'s', ArrowLeft:'w', ArrowRight:'e',
                  w:'n', s:'s', a:'w', d:'e', W:'n', S:'s', A:'w', D:'e' };
@@ -2557,6 +2690,7 @@ function wire(){
     // a held key repeats; only a fresh press picks the reins back up
     if (simHalted && e.repeat) return;
     simHalted = false;
+    simFast = false;
     simVec = Object.assign({}, dirs[keymap[e.key]]);
   });
   window.addEventListener('keyup', function(e){

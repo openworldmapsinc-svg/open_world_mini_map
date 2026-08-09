@@ -11,7 +11,7 @@
 <meta name="description" content="Open World Maps — the real world under fog, revealed by travelling it.">
 <title>OpenWorld — Open World Maps</title>
 
-<link rel="manifest" href="manifest.json?v29">
+<link rel="manifest" href="manifest.json?v30">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 
@@ -166,11 +166,21 @@
   .choice .d{display:block;margin-top:8px;font-family:var(--body);font-size:14.5px;line-height:1.6;
     color:var(--parchment-dim)}
   .choice:active,.choice.on{border-color:var(--gold);background:rgba(217,180,92,.12)}
+  /* an errand: same card, but it acts rather than sets a setting */
+  .pick{display:block;width:100%;text-align:left;margin:0 0 12px;padding:15px 16px;cursor:pointer;
+    background:linear-gradient(180deg,rgba(34,26,16,.6),rgba(14,11,7,.6));
+    border:1px solid rgba(217,180,92,.28);border-radius:3px}
+  .pick .t{display:block;font-family:var(--display);font-size:16px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--gold)}
+  .pick .d{display:block;margin-top:8px;font-family:var(--body);font-size:14.5px;line-height:1.6;
+    color:var(--parchment-dim)}
+  .pick:active{border-color:var(--gold);background:rgba(217,180,92,.12)}
   .choice.on .d{color:var(--parchment)}
 
   /* ---------- what each mode hides ---------- */
   #b-log{display:none}
   .mode-map #b-log{display:grid}
+  .mode-map #b-call{display:none}
   .mode-map #b-center,.mode-map #pad,.mode-map #realmbar{display:none}
   .mode-map .sim-only{display:none}
   .clear-state #b-drop,.clear-state #b-secret,
@@ -291,8 +301,10 @@
     max-width:86vw;text-align:center;font-style:italic}
   #toast.show{opacity:1;transform:translateX(-50%)}
 
-  #pad{position:absolute;right:calc(var(--safe-r) + 16px);bottom:calc(var(--safe-b) + 18px);z-index:800;
-    display:none;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:5px}
+  #pad{position:absolute;right:calc(var(--safe-r) + 12px);bottom:calc(var(--safe-b) + 14px);z-index:800;
+    display:none;grid-template-columns:repeat(5,40px);grid-template-rows:repeat(5,40px);gap:4px}
+  #pad button.fast{color:var(--gold-pale);border-color:rgba(217,180,92,.5);font-size:16px}
+  #pad button.fast:active{background:rgba(217,180,92,.3)}
   #pad.show{display:grid}
   #pad button{background:var(--glass);border:1px solid var(--rule);color:var(--gold);border-radius:2px;
     font-size:14px;cursor:pointer}
@@ -452,6 +464,11 @@
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
         <path d="M12 5v14M5 12h14"/></svg>
     </button>
+    <button class="btn" id="b-call" aria-label="Call the Cartographer">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
+        <path d="M12 3a7 7 0 0 0-7 7v4a3 3 0 0 0 3 3h1v-6H7v-1a5 5 0 0 1 10 0v1h-2v6h1a3 3 0 0 0 3-3v-4a7 7 0 0 0-7-7z"/>
+        <path d="M15 17v1a2.5 2.5 0 0 1-2.5 2.5H11"/></svg>
+    </button>
     <button class="btn wide" id="b-log" aria-label="Log your travels">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
         <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z"/>
@@ -478,9 +495,23 @@
 </div>
 
 <div id="pad">
-  <span class="sp"></span><button data-dir="n">▲</button><span class="sp"></span>
+  <span class="sp"></span><span class="sp"></span>
+  <button class="fast" data-dir="n" data-fast="1" aria-label="North, ten times">⇈</button>
+  <span class="sp"></span><span class="sp"></span>
+
+  <span class="sp"></span><span class="sp"></span><button data-dir="n">▲</button>
+  <span class="sp"></span><span class="sp"></span>
+
+  <button class="fast" data-dir="w" data-fast="1" aria-label="West, ten times">⇇</button>
   <button data-dir="w">◀</button><button data-dir="stop">■</button><button data-dir="e">▶</button>
-  <span class="sp"></span><button data-dir="s">▼</button><span class="sp"></span>
+  <button class="fast" data-dir="e" data-fast="1" aria-label="East, ten times">⇉</button>
+
+  <span class="sp"></span><span class="sp"></span><button data-dir="s">▼</button>
+  <span class="sp"></span><span class="sp"></span>
+
+  <span class="sp"></span><span class="sp"></span>
+  <button class="fast" data-dir="s" data-fast="1" aria-label="South, ten times">⇊</button>
+  <span class="sp"></span><span class="sp"></span>
 </div>
 
 <div class="hud" id="realmbar">
@@ -541,13 +572,11 @@
       straight to any city.</div>
 
     <div class="sect">Journal</div>
-    <button class="act" id="a-redo">Revisit the questions</button>
     <div class="row2">
       <button class="act" id="a-export">Export journal</button>
       <button class="act" id="a-import">Import journal</button>
     </div>
-    <button class="act warn" id="a-reset">Let the fog return</button>
-    <button class="act" id="a-repair">Check the map</button>
+    <button class="act warn" id="a-new">Begin a new journey</button>
     <button class="act" id="a-update">Force update</button>
     <div class="note">Open World Maps · build <b id="build-id">?</b> · your journal never leaves this device.</div>
   </div>
@@ -574,6 +603,41 @@
     <div class="who">The Cartographer</div>
     <div class="say" id="cart-text"></div>
     <button class="go" id="cart-next">Continue</button>
+  </div>
+</div>
+
+<div class="veil" id="errand" style="display:none">
+  <div class="step" id="errand-choice">
+    <div class="ask"><b>The Cartographer</b>
+      And what can I do for you, traveller?</div>
+    <div class="listwrap">
+      <button class="pick" id="errand-add">
+        <span class="t">Log a travel I missed</span>
+        <span class="d">Somewhere you have truly been that never made it onto the map — a lost
+          signal, a closed app, a place reached before you started keeping this journal.</span>
+      </button>
+      <button class="pick" id="errand-remove">
+        <span class="t">Strike a travel logged in error</span>
+        <span class="d">Somewhere the map credits you with that you never really walked. It becomes
+          unseen again, and the ground it opened closes over.</span>
+      </button>
+    </div>
+    <div class="foot">
+      <div class="count"></div>
+      <button class="alt" id="errand-close">Nothing, thank you</button>
+    </div>
+  </div>
+
+  <div class="step" id="errand-undo" style="display:none">
+    <div class="ask"><b>The Cartographer</b>
+      Which of these did you not truly walk?</div>
+    <div class="tools"><input class="search" id="undo-search" type="text" placeholder="Find a place…"></div>
+    <div class="listwrap"><div id="undo-list"></div></div>
+    <div class="foot">
+      <div class="count" id="undo-count">Nothing struck</div>
+      <button class="alt" id="undo-none">Never mind</button>
+      <button class="go" id="undo-done">That is all</button>
+    </div>
   </div>
 </div>
 
@@ -671,8 +735,8 @@
   </div>
 </div>
 
-<script src="data.js?v29"></script>
-<script src="states.js?v29"></script>
-<script src="app.js?v29"></script>
+<script src="data.js?v30"></script>
+<script src="states.js?v30"></script>
+<script src="app.js?v30"></script>
 </body>
 </html>
