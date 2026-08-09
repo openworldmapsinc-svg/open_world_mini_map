@@ -11,7 +11,7 @@
 <meta name="description" content="OpenWorld MiniMap — the minimap for the world you are actually walking.">
 <title>OpenWorld MiniMap</title>
 
-<link rel="manifest" href="manifest.json?v31">
+<link rel="manifest" href="manifest.json?v32">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 
@@ -95,10 +95,9 @@
 
   #ring .card{position:absolute;font-family:var(--display);font-weight:700;font-size:12px;
     letter-spacing:.1em;color:var(--gold-pale);text-shadow:0 1px 3px #000,0 0 10px rgba(0,0,0,.9)}
-  #ring .card.n{left:50%;top:-27px;transform:translateX(-50%)}
-  #ring .card.s{left:50%;bottom:-27px;transform:translateX(-50%)}
-  #ring .card.e{right:-24px;top:50%;transform:translateY(-50%)}
-  #ring .card.w{left:-24px;top:50%;transform:translateY(-50%)}
+  #ring .card.n{left:50%;top:-3px;transform:translate(-50%,-50%);font-size:13px;
+    padding:2px 7px;border-radius:2px;background:rgba(10,7,4,.82);
+    border:1px solid rgba(217,180,92,.45)}
 
   /* the mark that points at what you have not reached */
   #edge-mark{position:absolute;left:0;top:0;width:18px;height:18px;padding:0;border:0;
@@ -491,11 +490,10 @@
     <circle class="rim2"  cx="200" cy="200" r="183"/>
     <g class="ticks" id="ring-ticks"></g>
     <g class="studs">
-      <circle cx="200" cy="12" r="5"/><circle cx="388" cy="200" r="5"/>
-      <circle cx="200" cy="388" r="5"/><circle cx="12" cy="200" r="5"/>
+      <circle cx="200" cy="12" r="5"/><circle cx="200" cy="388" r="5"/>
     </g>
   </svg>
-  <b class="card n">N</b><b class="card e">E</b><b class="card s">S</b><b class="card w">W</b>
+  <b class="card n">N</b>
   <button id="edge-mark" aria-label="Nearest unreached place">
     <svg viewBox="0 0 18 18"><path d="M9 0 L14.5 15 L9 11.5 L3.5 15 Z"/></svg>
   </button>
@@ -818,8 +816,8 @@
   </div>
 </div>
 
-<script src="data.js?v31"></script>
-<script src="states.js?v31"></script>
-<script src="app.js?v31"></script>
+<script src="data.js?v32"></script>
+<script src="states.js?v32"></script>
+<script src="app.js?v32"></script>
 </body>
 </html>

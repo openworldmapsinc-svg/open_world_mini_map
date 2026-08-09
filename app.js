@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v31';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v32';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -1199,16 +1199,23 @@ function reframeRealm(){
    There is no free zoom. Pinch open for the local view — half a mile
    in every direction around you — and pinch closed for the framed
    world map. Nothing in between. */
-/* Up close the map is a disc, so the radius that matters is the disc's, not
-   the screen's. At world view the whole frame is the map again. */
-function viewRadiusPx(name){
+/* How much ground the view covers: measured to the edge of the screen, so
+   half a mile still means half a mile east and west. */
+function viewRadiusPx(){
   var s = map.getSize();
-  var r = Math.min(s.x, s.y)/2;
-  return Math.max(80, (name || view) === 'world' ? r : r - MM_INSET);
+  return Math.max(80, Math.min(s.x, s.y)/2);
+}
+
+/* The disc itself is deliberately wider than the phone. You see its top and
+   bottom arcs and know the circle is there; the sides run off the screen
+   rather than eating the map. */
+function discRadiusPx(){
+  var s = map.getSize();
+  return Math.max(120, Math.min(s.y/2 - MM_INSET, s.x*0.78));
 }
 
 function viewZoom(name, lat){
-  var half = viewRadiusPx(name);
+  var half = viewRadiusPx();
   var target = MILE*(VIEW_MILES[name] || 0.5)/half;          // metres per pixel
   return Math.max(map.getMinZoom(), Math.min(MAX_ZOOM,
     Math.log2(156543.03392*Math.cos(lat*Math.PI/180)/target)));
@@ -1285,7 +1292,7 @@ function buildRing(){
 
 function layoutMinimap(){
   if (!map) return;
-  var s = map.getSize(), r = viewRadiusPx();
+  var s = map.getSize(), r = discRadiusPx();
   var st = document.documentElement.style;
   st.setProperty('--mm-r',  r + 'px');
   st.setProperty('--mm-d',  (r*2) + 'px');
@@ -1335,17 +1342,21 @@ function updateEdgeMark(){
   var near = nearestUnseen();
   if (!near){ el.style.display = 'none'; edgeTarget = null; return; }
 
-  var s = map.getSize(), r = viewRadiusPx();
+  var s = map.getSize(), r = discRadiusPx();
   var here = L.latLng(pos.lat, pos.lng);
   var pt = map.latLngToContainerPoint([near.poi.lat, near.poi.lng]);
-  var dx = pt.x - s.x/2, dy = pt.y - s.y/2;
-  if (Math.hypot(dx, dy) < r - 12){        // already on the map, no need to point
-    el.style.display = 'none'; edgeTarget = null; return;
+  if (pt.x > 10 && pt.x < s.x-10 && pt.y > 10 && pt.y < s.y-10 &&
+      Math.hypot(pt.x - s.x/2, pt.y - s.y/2) < r - 12){
+    el.style.display = 'none'; edgeTarget = null; return;   // already in view
   }
   var brg = bearingTo(here, L.latLng(near.poi.lat, near.poi.lng));
   var rad = brg*Math.PI/180;
   var x = s.x/2 + Math.sin(rad)*(r - 3);
   var y = s.y/2 - Math.cos(rad)*(r - 3);
+  // the disc runs off the sides, so keep the mark where it can be seen
+  var pad = 20;
+  x = Math.max(pad, Math.min(s.x - pad, x));
+  y = Math.max(pad + 96, Math.min(s.y - pad - 40, y));
   el.style.display = 'block';
   el.style.transform = 'translate(' + (x-9) + 'px,' + (y-9) + 'px) rotate(' + brg + 'deg)';
   edgeTarget = { poi:near.poi, dist:near.dist, brg:brg };

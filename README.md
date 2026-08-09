@@ -95,8 +95,10 @@ polygon automatically, no other change needed.
 
 ## The minimap
 
-Up close the map is a **disc** — masked to a circle, ringed in gilt with notched degree marks and
-cardinal lettering, sitting on tooled leather. That is local and region view. Pull all the way out
+Up close the map is a **disc** — masked to a circle, ringed in gilt with notched degree marks and a
+single **N** at the top. The circle is deliberately wider than the phone: you see its top and bottom
+arcs and know it is there, while the sides run off the screen rather than eating into the map. That
+is local and region view. Pull all the way out
 and the disc gives way to the framed chart of the country, because at that point you are not looking
 at a minimap any more, you are looking at the map.
 
