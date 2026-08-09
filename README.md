@@ -1,6 +1,7 @@
-# Open World Maps — *OpenWorld*
+# OpenWorld MiniMap
 
-The real world under fog. Travel it, and the map remembers.
+The minimap for the world you are actually walking. Somewhere out there is the real map; this is
+the corner of it you can see.
 
 ## Files
 
@@ -92,6 +93,17 @@ State shapes are rectangles for now. To use true outlines, define `window.OW_STA
 `{ CA: [[[lng,lat], ...]], ... }` before `app.js` loads — the region builder will clip to the
 polygon automatically, no other change needed.
 
+## The minimap
+
+Up close the map is a **disc** — masked to a circle, ringed in gilt with notched degree marks and
+cardinal lettering, sitting on tooled leather. That is local and region view. Pull all the way out
+and the disc gives way to the framed chart of the country, because at that point you are not looking
+at a minimap any more, you are looking at the map.
+
+On the rim sits a single **gold chevron** pointing at the nearest place you have not reached, in the
+direction it actually lies. It hides itself when that place is already on the disc. Tap it and it
+names the place, the compass point and the distance.
+
 ## Three views, and realms
 
 There is no free zoom. The map has exactly three states, and pinching steps one rung at a time:
@@ -121,9 +133,8 @@ standing in. Frames are defined in `REALMS` in `data.js`.
 ## Two maps in one
 
 There are no drawn creatures, ships, wilds or invented sea names on the map — all of that has been
-removed. The atmosphere comes from the fog, the tinting and the interface. Terrain styles that carry
-a tint (Aged parchment, Cartographer's ink) ease it off as you move from world view to local view;
-the default **Nightfall** style carries none, so the local map reads plainly and accurately.
+removed. The atmosphere comes from the fog, the tinting and the interface. The default **Nightfall** style carries no tint, so the map
+reads plainly and accurately at every scale.
 
 **Fog stops at the coast.** It is clipped to a US outline (`OUTLINE` in `data.js`), so the Pacific,
 the Atlantic, the Gulf, Canada and Mexico are always visible for context — only undiscovered
@@ -218,7 +229,7 @@ state split.
 
 ## Map styles
 
-Nightfall (default), Aged parchment, Cartographer's ink, Wilderness relief, Realm from above.
+Nightfall (default), Wilderness relief, Realm from above.
 The first three are ordinary OSM-based tiles with a sepia filter over the tile layer only, so the
 fog and UI keep their own colour. Attribution must stay visible. For real traffic, move to a keyed
 tile plan (MapTiler, Stadia, Mapbox) and swap the URL in `STYLES` at the top of `app.js`.

@@ -3,19 +3,33 @@
     <radialGradient id="bg" cx="50%" cy="30%" r="82%">
       <stop offset="0%" stop-color="#241b10"/><stop offset="100%" stop-color="#0a0704"/>
     </radialGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f0dda4"/><stop offset="55%" stop-color="#d9b45c"/>
-      <stop offset="100%" stop-color="#6d5216"/>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0dda4"/><stop offset="45%" stop-color="#a5842f"/>
+      <stop offset="55%" stop-color="#6d5216"/><stop offset="100%" stop-color="#d9b45c"/>
     </linearGradient>
+    <clipPath id="disc"><circle cx="256" cy="256" r="184"/></clipPath>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="256" cy="256" r="200" fill="none" stroke="#8a6a22" stroke-width="4"/>
-  <circle cx="256" cy="256" r="156" fill="none" stroke="#8a6a22" stroke-width="3" opacity=".7"/>
-  <g fill="#8a6a22">
-    <path d="M380 380l-11-11 11-11 11 11z"/><path d="M132 380l-11-11 11-11 11 11z"/>
-    <path d="M380 132l-11-11 11-11 11 11z"/><path d="M132 132l-11-11 11-11 11 11z"/>
+  <g clip-path="url(#disc)">
+    <rect x="60" y="60" width="392" height="392" fill="#222a26"/>
+    <ellipse cx="150" cy="170" rx="70" ry="52" fill="#303c2e"/>
+    <ellipse cx="360" cy="140" rx="62" ry="48" fill="#2c3729"/>
+    <ellipse cx="352" cy="360" rx="74" ry="56" fill="#32402f"/>
+    <ellipse cx="150" cy="380" rx="62" ry="44" fill="#2b3628"/>
+    <path d="M60 380 L452 316 L452 452 L60 452 Z" fill="#26303a"/>
+    <path d="M60 316 L170 292 L232 200 L318 208 L376 148 L452 160" fill="none"
+          stroke="#9e844a" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M350 150 l16 24 -16 24 -16-24z" fill="#d9b45c"/>
+    <path d="M60 60 L232 60 L170 256 L246 452 L60 452 Z" fill="#60687a" opacity=".55"/>
   </g>
-  <path d="M256 50 L280 232 L462 256 L280 280 L256 462 L232 280 L50 256 L232 232 Z" fill="url(#gold)"/>
-  <circle cx="256" cy="256" r="28" fill="#0a0704"/>
-  <circle cx="256" cy="256" r="13" fill="#f0dda4"/>
+  <circle cx="256" cy="256" r="198" fill="none" stroke="url(#rim)" stroke-width="15"/>
+  <circle cx="256" cy="256" r="184" fill="none" stroke="#7a5f2c" stroke-width="4"/>
+  <g stroke="#f0dda4" stroke-width="6" stroke-linecap="round">
+    <path d="M256 184v-22M256 328v22M184 256h-22M328 256h22"/>
+  </g>
+  <g fill="#f0dda4" stroke="#3d2f10" stroke-width="3">
+    <circle cx="256" cy="58" r="13"/><circle cx="256" cy="454" r="13"/>
+    <circle cx="58" cy="256" r="13"/><circle cx="454" cy="256" r="13"/>
+  </g>
+  <path d="M256 208 l30 74 -30-16 -30 16z" fill="#fff6e2" stroke="#3d2f10" stroke-width="4"/>
 </svg>

@@ -1,4 +1,4 @@
-/* Open World Maps — application logic */
+/* OpenWorld MiniMap — application logic */
 (function(){
 'use strict';
 
@@ -6,7 +6,7 @@ var D      = window.OW_DATA;
 var STATES = D.STATES;
 var MILE   = 1609.344;
 var STORE  = 'openworld.v2';
-var BUILD  = 'v30';           // shown in Expedition; bump with sw.js
+var BUILD  = 'v31';           // shown in Expedition; bump with sw.js
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -111,6 +111,7 @@ var SECRET_MILES = 50;  // cleared around you when you stumble on a secret
    you learn a place is there. */
 var FOG_GUST  = false; // a discovery used to blow the whole fog across the
                        // screen. Set true to bring that back.
+var MM_INSET  = 15;    // gap between the map disc and its ring
 var MASK_SCALE= 0.22;  // masks drawn small, then upscaled — this is what softens every edge
 var DILATE_LAND  = 12; // how far the land mask is grown past the coast, in px
 var DILATE_STATE = 22; // how far a cleared state grows — but only into open sea
@@ -1198,9 +1199,16 @@ function reframeRealm(){
    There is no free zoom. Pinch open for the local view — half a mile
    in every direction around you — and pinch closed for the framed
    world map. Nothing in between. */
-function viewZoom(name, lat){
+/* Up close the map is a disc, so the radius that matters is the disc's, not
+   the screen's. At world view the whole frame is the map again. */
+function viewRadiusPx(name){
   var s = map.getSize();
-  var half = Math.max(80, Math.min(s.x, s.y)/2);
+  var r = Math.min(s.x, s.y)/2;
+  return Math.max(80, (name || view) === 'world' ? r : r - MM_INSET);
+}
+
+function viewZoom(name, lat){
+  var half = viewRadiusPx(name);
   var target = MILE*(VIEW_MILES[name] || 0.5)/half;          // metres per pixel
   return Math.max(map.getMinZoom(), Math.min(MAX_ZOOM,
     Math.log2(156543.03392*Math.cos(lat*Math.PI/180)/target)));
@@ -1257,6 +1265,108 @@ function applyMode(){
   if (mapMode() && cfg.sim){ cfg.sim = false; if (simTimer){ clearInterval(simTimer); simTimer = null; } }
 }
 
+/* Position the disc, its ring and its lettering. */
+/* Notches around the rim: a long one at each cardinal, a short one every
+   fifteen degrees between. */
+function buildRing(){
+  var g = $('ring-ticks');
+  if (!g || g.childNodes.length) return;
+  var parts = '';
+  for (var d=0; d<360; d+=7.5){
+    var major = (d % 90 === 0), mid = (d % 45 === 0);
+    var len = major ? 15 : mid ? 10 : 5;
+    var rad = d*Math.PI/180, r0 = 183, r1 = r0 - len;
+    parts += '<line class="'+(major?'major':'')+'" '+
+      'x1="'+(200+Math.sin(rad)*r0).toFixed(1)+'" y1="'+(200-Math.cos(rad)*r0).toFixed(1)+'" '+
+      'x2="'+(200+Math.sin(rad)*r1).toFixed(1)+'" y2="'+(200-Math.cos(rad)*r1).toFixed(1)+'"/>';
+  }
+  g.innerHTML = parts;
+}
+
+function layoutMinimap(){
+  if (!map) return;
+  var s = map.getSize(), r = viewRadiusPx();
+  var st = document.documentElement.style;
+  st.setProperty('--mm-r',  r + 'px');
+  st.setProperty('--mm-d',  (r*2) + 'px');
+  st.setProperty('--mm-cx', (s.x/2) + 'px');
+  st.setProperty('--mm-cy', (s.y/2) + 'px');
+  document.body.classList.toggle('minimap', view !== 'world');
+}
+
+/* ── The edge mark ────────────────────────────────────────────────
+   The nearest place you have not reached, pinned to the rim in the
+   direction it lies. Tap it and it tells you which and how far. */
+var COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+
+function nearestUnseen(){
+  if (!pos) return null;
+  var here = L.latLng(pos.lat, pos.lng), best = null, bestD = Infinity;
+  for (var i=0;i<pois.length;i++){
+    var p = pois[i];
+    if (p.found || p.secret) continue;      // secrets stay secret
+    var d = here.distanceTo(L.latLng(p.lat, p.lng));
+    if (d < bestD){ bestD = d; best = p; }
+  }
+  if (!best){                                // everything found: show the closest anyway
+    for (var j=0;j<pois.length;j++){
+      var q = pois[j];
+      if (q.secret) continue;
+      var dq = here.distanceTo(L.latLng(q.lat, q.lng));
+      if (dq < bestD){ bestD = dq; best = q; }
+    }
+  }
+  return best ? { poi:best, dist:bestD } : null;
+}
+
+function bearingTo(a, b){
+  var y = Math.sin((b.lng-a.lng)*Math.PI/180) * Math.cos(b.lat*Math.PI/180);
+  var x = Math.cos(a.lat*Math.PI/180)*Math.sin(b.lat*Math.PI/180) -
+          Math.sin(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.cos((b.lng-a.lng)*Math.PI/180);
+  return (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+}
+
+var edgeTarget = null;
+function updateEdgeMark(){
+  var el = $('edge-mark');
+  if (!el) return;
+  if (view === 'world' || !pos){ el.style.display = 'none'; edgeTarget = null; return; }
+
+  var near = nearestUnseen();
+  if (!near){ el.style.display = 'none'; edgeTarget = null; return; }
+
+  var s = map.getSize(), r = viewRadiusPx();
+  var here = L.latLng(pos.lat, pos.lng);
+  var pt = map.latLngToContainerPoint([near.poi.lat, near.poi.lng]);
+  var dx = pt.x - s.x/2, dy = pt.y - s.y/2;
+  if (Math.hypot(dx, dy) < r - 12){        // already on the map, no need to point
+    el.style.display = 'none'; edgeTarget = null; return;
+  }
+  var brg = bearingTo(here, L.latLng(near.poi.lat, near.poi.lng));
+  var rad = brg*Math.PI/180;
+  var x = s.x/2 + Math.sin(rad)*(r - 3);
+  var y = s.y/2 - Math.cos(rad)*(r - 3);
+  el.style.display = 'block';
+  el.style.transform = 'translate(' + (x-9) + 'px,' + (y-9) + 'px) rotate(' + brg + 'deg)';
+  edgeTarget = { poi:near.poi, dist:near.dist, brg:brg };
+}
+
+function tellEdgeTarget(){
+  if (!edgeTarget) return;
+  var mi = edgeTarget.dist/MILE;
+  var far = mi < 0.2 ? Math.round(edgeTarget.dist*3.28084/10)*10 + ' ft'
+          : mi < 10  ? mi.toFixed(1) + ' mi'
+          : Math.round(mi).toLocaleString() + ' mi';
+  var pt = COMPASS[Math.round(edgeTarget.brg/22.5) % 16];
+  var box = $('edge-info');
+  box.innerHTML = '<b></b><span></span>';
+  box.querySelector('b').textContent = edgeTarget.poi.name;
+  box.querySelector('span').textContent = pt + ' · ' + far + ' away';
+  box.classList.add('show');
+  clearTimeout(box._h);
+  box._h = setTimeout(function(){ box.classList.remove('show'); }, 4200);
+}
+
 function applyViewState(){
   if (fogCanvas) fogCanvas.style.opacity = FOG_BY_VIEW[view] != null ? FOG_BY_VIEW[view] : 1;
   document.body.classList.toggle('view-local', view === 'local');
@@ -1270,6 +1380,8 @@ function applyViewState(){
   var tp = map.getPane('towns');
   if (tp) tp.style.zIndex = (view === 'world') ? 455 : 435;
   maskDirty = landDirty = true;
+  layoutMinimap();
+  updateEdgeMark();
   paintScale();
 }
 
@@ -1511,7 +1623,8 @@ function buildMap(){
 
   map.on('zoom', function(){ applyEra(map.getZoom()); paintScale(); });
   map.on('zoomend', function(){ cfg.zoom = map.getZoom(); save(); applyEra(map.getZoom()); paintScale(); });
-  map.on('move', paintScale);
+  map.on('move', function(){ paintScale(); updateEdgeMark(); });
+  map.on('resize', layoutMinimap);
   map.on('dragstart', function(){ panned = true; $('b-center').classList.add('adrift'); });
   map.on('click', function(e){
     if (!placeMode) return;
@@ -1519,7 +1632,9 @@ function buildMap(){
     setPlaceMode(false);
     addPoi(e.latlng.lat, e.latlng.lng, null, kind === 'secret');
   });
-  window.addEventListener('resize', function(){ maskDirty = landDirty = true; reframeRealm(); });
+  window.addEventListener('resize', function(){
+    maskDirty = landDirty = true; layoutMinimap(); reframeRealm();
+  });
   window.addEventListener('orientationchange', function(){
     setTimeout(function(){ maskDirty = landDirty = true; reframeRealm(); }, 350);
   });
@@ -1550,12 +1665,11 @@ function setTiles(key){
 }
 
 function viewHalfMeters(){
-  var s = map.getSize();
-  return Math.min(s.x,s.y)/2 * mpp(map.getCenter().lat, map.getZoom());
+  return viewRadiusPx() * mpp(map.getCenter().lat, map.getZoom());
 }
 function paintScale(){
   var s = map.getSize();
-  var across = Math.min(s.x,s.y) * mpp(map.getCenter().lat, map.getZoom());
+  var across = viewRadiusPx()*2 * mpp(map.getCenter().lat, map.getZoom());
   var ft = across*3.28084, txt;
   if (ft < 1200) txt = Math.round(ft/10)*10 + ' ft';
   else if (across < 16093) txt = (across/MILE).toFixed(1) + ' mi';
@@ -1621,6 +1735,7 @@ function onPosition(lat,lng,acc){
   if (here !== realm) setRealm(here, false);
   revealTrail(lat,lng);
   notePath(lat,lng);
+  updateEdgeMark();
   checkArrivals(lat,lng);
   shiftWindow(lat,lng);
   paintStats();
@@ -2527,6 +2642,7 @@ function wire(){
 
   $('b-log').onclick = logTravels;
   $('b-call').onclick = callCartographer;
+  $('edge-mark').onclick = function(e){ e.stopPropagation(); tellEdgeTarget(); };
   $('errand-add').onclick = errandAdd;
   $('errand-remove').onclick = errandUndo;
   $('errand-close').onclick = closeErrand;
@@ -2631,7 +2747,7 @@ function wire(){
   $('a-export').onclick = function(){
     var blob = new Blob([localStorage.getItem(STORE)||'{}'], {type:'application/json'});
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = 'openworld-journal.json'; a.click();
+    a.download = 'openworld-minimap-journal.json'; a.click();
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
   };
   $('a-import').onclick = function(){
@@ -2708,6 +2824,8 @@ function wire(){
    ═══════════════════════════════════════════════════════════════ */
 load();
 buildMap();
+buildRing();
+layoutMinimap();
 applyMode();
 auditStates();
 wire();

@@ -6,12 +6,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OpenWorld">
+<meta name="apple-mobile-web-app-title" content="MiniMap">
 <meta name="theme-color" content="#0e0b07">
-<meta name="description" content="Open World Maps — the real world under fog, revealed by travelling it.">
-<title>OpenWorld — Open World Maps</title>
+<meta name="description" content="OpenWorld MiniMap — the minimap for the world you are actually walking.">
+<title>OpenWorld MiniMap</title>
 
-<link rel="manifest" href="manifest.json?v30">
+<link rel="manifest" href="manifest.json?v31">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 
@@ -66,6 +66,62 @@
     box-shadow:0 4px 18px rgba(0,0,0,.7)}
   .leaflet-tooltip.poi-tip:before{border-top-color:var(--rule)}
 
+
+  /* ---------- the minimap disc ---------- */
+  :root{--mm-r:170px;--mm-d:340px;--mm-cx:50%;--mm-cy:50%}
+
+  /* out beyond the rim: tooled leather, not map */
+  body.minimap #map{
+    -webkit-mask-image:radial-gradient(circle var(--mm-r) at var(--mm-cx) var(--mm-cy),
+      #000 97%, rgba(0,0,0,.55) 99%, transparent 100%);
+    mask-image:radial-gradient(circle var(--mm-r) at var(--mm-cx) var(--mm-cy),
+      #000 97%, rgba(0,0,0,.55) 99%, transparent 100%)}
+  body.minimap:before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(circle at 32% 22%,rgba(122,95,44,.16),transparent 55%),
+      radial-gradient(circle at 78% 82%,rgba(122,95,44,.12),transparent 55%),
+      linear-gradient(160deg,#241c11 0%,#150f08 45%,#0b0805 100%)}
+
+  #ring{position:absolute;left:calc(var(--mm-cx) - var(--mm-r));top:calc(var(--mm-cy) - var(--mm-r));
+    width:var(--mm-d);height:var(--mm-d);z-index:780;pointer-events:none;display:none}
+  body.minimap #ring{display:block}
+  #ring svg{width:100%;height:100%;overflow:visible}
+  #ring .shade{fill:none;stroke:rgba(6,4,2,.85);stroke-width:14}
+  #ring .rim{fill:none;stroke:url(#rimg);stroke-width:7}
+  #ring .rim2{fill:none;stroke:rgba(217,180,92,.34);stroke-width:1.5}
+  #ring .ticks line{stroke:rgba(217,180,92,.55);stroke-width:1.6}
+  #ring .ticks line.major{stroke:var(--gold-pale);stroke-width:2.6}
+  #ring .studs circle{fill:var(--gold);stroke:#3d2f10;stroke-width:1.5}
+
+  #ring .card{position:absolute;font-family:var(--display);font-weight:700;font-size:12px;
+    letter-spacing:.1em;color:var(--gold-pale);text-shadow:0 1px 3px #000,0 0 10px rgba(0,0,0,.9)}
+  #ring .card.n{left:50%;top:-27px;transform:translateX(-50%)}
+  #ring .card.s{left:50%;bottom:-27px;transform:translateX(-50%)}
+  #ring .card.e{right:-24px;top:50%;transform:translateY(-50%)}
+  #ring .card.w{left:-24px;top:50%;transform:translateY(-50%)}
+
+  /* the mark that points at what you have not reached */
+  #edge-mark{position:absolute;left:0;top:0;width:18px;height:18px;padding:0;border:0;
+    background:none;display:none;pointer-events:auto;cursor:pointer;
+    transform-origin:50% 50%;filter:drop-shadow(0 1px 4px rgba(0,0,0,.9))}
+  #edge-mark svg{width:100%;height:100%}
+  #edge-mark path{fill:var(--gold-pale);stroke:#3d2f10;stroke-width:1}
+  #edge-mark:active path{fill:#fff}
+  body.minimap #ring{pointer-events:none}
+
+  #edge-info{position:absolute;left:50%;top:calc(var(--mm-cy) + var(--mm-r) + 14px);
+    transform:translate(-50%,6px);z-index:800;opacity:0;pointer-events:none;
+    transition:opacity .22s,transform .22s;text-align:center;
+    background:var(--glass);border:1px solid var(--rule);border-radius:3px;padding:8px 15px;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);white-space:nowrap}
+  #edge-info.show{opacity:1;transform:translate(-50%,0)}
+  #edge-info b{display:block;font-family:var(--display);font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--gold-pale)}
+  #edge-info span{display:block;font-size:12.5px;font-style:italic;color:var(--parchment-dim);margin-top:2px}
+
+  /* the old rectangular frame belongs to the world chart only */
+  body.minimap #frame{opacity:0}
+  #frame{transition:opacity .3s}
   /* ---------- frame ---------- */
   #frame{position:absolute;inset:0;z-index:700;pointer-events:none;
     box-shadow:inset 0 0 140px 30px rgba(6,4,2,.72)}
@@ -142,13 +198,15 @@
   .v{font-size:15px;line-height:1.2;color:var(--parchment);white-space:nowrap;font-variant-numeric:tabular-nums}
   .v small{font-size:10px;color:var(--parchment-dim)}
 
-  .btn{width:44px;height:44px;display:grid;place-items:center;flex:none;cursor:pointer;
-    background:linear-gradient(180deg,rgba(34,26,16,.92),rgba(14,11,7,.94));
-    border:1px solid var(--rule);border-radius:2px;color:var(--gold);
-    box-shadow:0 8px 30px rgba(0,0,0,.6),inset 0 1px 0 rgba(240,221,164,.08);
-    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:transform .12s,color .2s}
+  /* struck like coins, the way a game hangs tools around its minimap */
+  .btn{width:46px;height:46px;display:grid;place-items:center;flex:none;cursor:pointer;
+    background:radial-gradient(circle at 34% 26%,#2c2214,#140f08 78%);
+    border:1.5px solid rgba(217,180,92,.45);border-radius:50%;color:var(--gold);
+    box-shadow:0 6px 18px rgba(0,0,0,.75),inset 0 1px 0 rgba(240,221,164,.16),
+      inset 0 -3px 8px rgba(0,0,0,.6);
+    transition:transform .12s,color .2s,border-color .2s}
   .btn:active{transform:scale(.93)}
-  .btn.on{color:var(--seal);border-color:var(--gold)}
+  .btn.on{color:var(--seal);border-color:var(--gold-pale)}
   .btn.adrift{color:var(--gold-pale);border-color:var(--gold);
     box-shadow:0 8px 30px rgba(0,0,0,.6),0 0 0 1px rgba(217,180,92,.35),
       inset 0 1px 0 rgba(240,221,164,.12);animation:adrift 2.4s ease-in-out infinite}
@@ -420,6 +478,30 @@
 
 <div id="map"></div>
 
+<div id="ring">
+  <svg viewBox="0 0 400 400" aria-hidden="true">
+    <defs>
+      <linearGradient id="rimg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f0dda4"/><stop offset="45%" stop-color="#a5842f"/>
+        <stop offset="55%" stop-color="#6d5216"/><stop offset="100%" stop-color="#d9b45c"/>
+      </linearGradient>
+    </defs>
+    <circle class="shade" cx="200" cy="200" r="196"/>
+    <circle class="rim"   cx="200" cy="200" r="192"/>
+    <circle class="rim2"  cx="200" cy="200" r="183"/>
+    <g class="ticks" id="ring-ticks"></g>
+    <g class="studs">
+      <circle cx="200" cy="12" r="5"/><circle cx="388" cy="200" r="5"/>
+      <circle cx="200" cy="388" r="5"/><circle cx="12" cy="200" r="5"/>
+    </g>
+  </svg>
+  <b class="card n">N</b><b class="card e">E</b><b class="card s">S</b><b class="card w">W</b>
+  <button id="edge-mark" aria-label="Nearest unreached place">
+    <svg viewBox="0 0 18 18"><path d="M9 0 L14.5 15 L9 11.5 L3.5 15 Z"/></svg>
+  </button>
+</div>
+<div id="edge-info"></div>
+
 <div id="frame">
   <svg class="tl" viewBox="0 0 74 74" fill="none" stroke="currentColor" stroke-width="1.1">
     <path d="M4 30V8a4 4 0 0 1 4-4h22"/><path d="M10 26V14a4 4 0 0 1 4-4h12"/>
@@ -441,7 +523,7 @@
 
 <div class="hud" id="topbar">
   <div class="plate" id="crest">
-    <div class="name">Open<em>World</em></div>
+    <div class="name">Open<em>World</em> <i>MiniMap</i></div>
     <div class="divider"></div>
     <div class="grid">
       <div><div class="k">Charted</div><div class="v" id="s-area">0 <small>mi²</small></div></div>
@@ -578,7 +660,7 @@
     </div>
     <button class="act warn" id="a-new">Begin a new journey</button>
     <button class="act" id="a-update">Force update</button>
-    <div class="note">Open World Maps · build <b id="build-id">?</b> · your journal never leaves this device.</div>
+    <div class="note">OpenWorld MiniMap · build <b id="build-id">?</b> · your journal never leaves this device.</div>
   </div>
 </div>
 
@@ -590,8 +672,9 @@
     <circle cx="50" cy="50" r="5.5" fill="#d9b45c" stroke="none"/>
   </svg>
   <h1>Open<em>World</em></h1>
-  <div class="sub">Open World Maps</div>
-  <p>The land beyond your door is lost to fog. Walk it, and the world remembers you were there.</p>
+  <div class="sub">MiniMap</div>
+  <p>Somewhere out there is the real map. This is the corner of it you can see —
+     the land beyond your door, lost to fog until you walk it.</p>
   <button class="go" id="g-start">Set out</button>
   <button class="alt" id="g-sim">Explore without GPS</button>
   <div id="g-err"></div>
@@ -735,8 +818,8 @@
   </div>
 </div>
 
-<script src="data.js?v30"></script>
-<script src="states.js?v30"></script>
-<script src="app.js?v30"></script>
+<script src="data.js?v31"></script>
+<script src="states.js?v31"></script>
+<script src="app.js?v31"></script>
 </body>
 </html>
